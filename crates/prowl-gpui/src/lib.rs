@@ -346,14 +346,21 @@ impl Render for ProwlView {
             .border_color(border)
             .children(self.detail_lines(fg, muted, accent_green));
 
-        v_flex()
+        let body = v_flex()
             .size_full()
             .bg(bg)
             .text_color(fg)
             .font_family("Menlo")
             .text_xs()
             .child(header)
-            .child(h_flex().flex_1().min_h_0().child(table).child(detail))
+            .child(h_flex().flex_1().min_h_0().child(table).child(detail));
+
+        // Root::render は通知レイヤを描かないので、アプリ側で重ねる（トースト表示用）。
+        div()
+            .relative()
+            .size_full()
+            .child(body)
+            .children(Root::render_notification_layer(window, cx))
     }
 }
 
