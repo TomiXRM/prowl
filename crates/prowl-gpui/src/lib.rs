@@ -14,6 +14,7 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use gpui::*;
+use gpui_component::notification::Notification;
 use gpui_component::table::{Column, Table, TableDelegate, TableEvent, TableState};
 use gpui_component::{button::*, *};
 use prowl_app::{AppState, Command, EngineHandle, HostRow, HostStatus, PortScanState};
@@ -78,8 +79,12 @@ impl TableDelegate for HostTableDelegate {
                     .cursor_pointer()
                     .text_color(color)
                     .child(label)
-                    .on_click(move |_, _, cx| {
+                    .on_click(move |_, window, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(ip_str.clone()));
+                        window.push_notification(
+                            Notification::success(format!("コピー: {ip_str}")),
+                            cx,
+                        );
                     })
                     .into_any_element()
             }
