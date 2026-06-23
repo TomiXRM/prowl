@@ -95,9 +95,24 @@ impl ProwlView {
                 .text_color(fg)
                 .child(format!("{}  [{:?}]", h.ip, h.status))
                 .into_any_element(),
-            kv("MAC", h.mac.clone().unwrap_or_else(|| "-".into()), muted, fg),
-            kv("Vendor", h.vendor.clone().unwrap_or_else(|| "-".into()), muted, fg),
-            kv("Host", h.hostname.clone().unwrap_or_else(|| "-".into()), muted, fg),
+            kv(
+                "MAC",
+                h.mac.clone().unwrap_or_else(|| "-".into()),
+                muted,
+                fg,
+            ),
+            kv(
+                "Vendor",
+                h.vendor.clone().unwrap_or_else(|| "-".into()),
+                muted,
+                fg,
+            ),
+            kv(
+                "Host",
+                h.hostname.clone().unwrap_or_else(|| "-".into()),
+                muted,
+                fg,
+            ),
         ];
 
         let ps = &self.state.port_scan;
@@ -190,7 +205,11 @@ impl Render for ProwlView {
             .child(
                 div()
                     .text_color(if monitoring { accent_green } else { muted })
-                    .child(if monitoring { "監視 ON" } else { "監視 OFF" }),
+                    .child(if monitoring {
+                        "監視 ON"
+                    } else {
+                        "監視 OFF"
+                    }),
             )
             .child(
                 Button::new("rescan")
@@ -265,11 +284,12 @@ impl Render for ProwlView {
             .children(rows);
 
         // --- 詳細パネル ---
-        let detail = v_flex()
-            .flex_1()
-            .p_3()
-            .gap_1()
-            .children(self.detail_lines(fg, muted, accent_green));
+        let detail =
+            v_flex()
+                .flex_1()
+                .p_3()
+                .gap_1()
+                .children(self.detail_lines(fg, muted, accent_green));
 
         v_flex()
             .size_full()

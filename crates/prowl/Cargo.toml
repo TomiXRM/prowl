@@ -12,3 +12,9 @@ prowl-tui = { workspace = true }
 prowl-web = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+# GPUI フロントは重い git 依存＋Metal(要フルXcode)のため optional。
+# `--features gpui` でのみ有効（prowl-gpui の desktop feature を引く）。
+prowl-gpui = { path = "../prowl-gpui", optional = true }
+
+[features]
+gpui = ["dep:prowl-gpui", "prowl-gpui/desktop"]
