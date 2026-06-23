@@ -17,4 +17,4 @@ anyhow = { workspace = true }
 prowl-gpui = { path = "../prowl-gpui", optional = true }
 
 [features]
-gpui = ["dep:prowl-gpui", "prowl-gpui/desktop"]
+gpui = ["dep:prowl-gpui"]

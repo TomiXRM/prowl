@@ -5,8 +5,8 @@
 //! 持つため、`Frontend`(async) トレイトではなく [`run`] をメインスレッドで直接呼ぶ
 //! （tokio エンジンは背後ランタイムで動かし、状態は `watch` 経由で橋渡しする）。
 //!
-//! ウィンドウ起動部 [`run`] は `desktop` feature (gpui_platform/Metal) 必須で、
-//! macOS ではフル Xcode が要る。ビュー層(本ファイルの大半)は gpui コアのみで成立。
+//! crates.io 版 gpui + `runtime_shaders`（実行時シェーダ）採用で、Metal のビルド時
+//! コンパイル(フル Xcode)は不要。CommandLineTools だけでビルド/実行できる。
 
 // ウィンドウ起動部は feature gate のため、未使用扱いになる項目を許容する。
 #![allow(dead_code)]
@@ -16,11 +16,8 @@ use std::net::Ipv4Addr;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{button::*, *};
-use prowl_app::{AppState, Command, HostStatus, PortScanState};
+use prowl_app::{AppState, Command, EngineHandle, HostStatus, PortScanState};
 use tokio::sync::{mpsc, watch};
-
-#[cfg(feature = "desktop")]
-use prowl_app::EngineHandle;
 
 /// ルートビュー。`AppState` をミラーし、入力を `Command` に翻訳する。
 struct ProwlView {
@@ -302,24 +299,18 @@ impl Render for ProwlView {
 
 /// GPUI アプリを起動する（メインスレッドを占有してブロックする）。
 /// エンジンは別の tokio ランタイムで動かし、`handle` 経由で状態をやり取りする。
-///
-/// 要 `desktop` feature（gpui_platform/Metal）。macOS ではフル Xcode が必要。
-#[cfg(feature = "desktop")]
 pub fn run(handle: EngineHandle) {
-    gpui_platform::application().run(move |cx| {
+    Application::new().run(move |cx: &mut App| {
         gpui_component::init(cx);
 
         let EngineHandle {
             commands, state, ..
         } = handle;
 
-        cx.spawn(async move |cx| {
-            cx.open_window(WindowOptions::default(), move |window, cx| {
-                let view = cx.new(|cx| ProwlView::new(commands, state, window, cx));
-                cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
-            })
-            .expect("failed to open window");
+        cx.open_window(WindowOptions::default(), move |window, cx| {
+            let view = cx.new(|cx| ProwlView::new(commands, state, window, cx));
+            cx.new(|cx| Root::new(view, window, cx))
         })
-        .detach();
+        .expect("failed to open window");
     });
 }
