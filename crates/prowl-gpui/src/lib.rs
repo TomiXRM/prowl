@@ -35,11 +35,13 @@ impl ProwlView {
     ) -> Self {
         let state = state_rx.borrow().clone();
 
-        // watch<AppState> をビューへ橋渡し（tokio sync は runtime非依存なので gpui executor で await 可）
+        // watch<AppState> をビューへ橋渡し。
+        // tokio の changed().await は cross-executor の wake が不確実なので、
+        // gpui executor のタイマーでポーリングして最新値を取り込む（system_monitor 方式）。
         cx.spawn(async move |this, cx| loop {
-            if state_rx.changed().await.is_err() {
-                break;
-            }
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(150))
+                .await;
             let snapshot = state_rx.borrow().clone();
             if this
                 .update(cx, |this, cx| {
@@ -242,7 +244,9 @@ impl Render for ProwlView {
                     .flex()
                     .gap_2()
                     .px_3()
-                    .py_1()
+                    .py_1p5()
+                    .border_b_1()
+                    .border_color(border)
                     .cursor_pointer()
                     .when(is_sel, |d| d.bg(sel_bg))
                     .hover(|d| d.bg(hover_bg))
@@ -292,6 +296,8 @@ impl Render for ProwlView {
             .size_full()
             .bg(bg)
             .text_color(fg)
+            .font_family("Menlo")
+            .text_sm()
             .child(header)
             .child(h_flex().flex_1().min_h_0().child(host_list).child(detail))
     }
@@ -307,7 +313,14 @@ pub fn run(handle: EngineHandle) {
             commands, state, ..
         } = handle;
 
-        cx.open_window(WindowOptions::default(), move |window, cx| {
+        let opts = WindowOptions {
+            titlebar: Some(TitlebarOptions {
+                title: Some("prowl".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        cx.open_window(opts, move |window, cx| {
             let view = cx.new(|cx| ProwlView::new(commands, state, window, cx));
             cx.new(|cx| Root::new(view, window, cx))
         })
