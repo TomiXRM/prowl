@@ -49,3 +49,25 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all --check
+
+  e2e:
+    name: web e2e (playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build prowl
+        run: cargo build -p prowl --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install e2e deps
+        working-directory: e2e
+        run: npm ci
+      - name: Install Playwright browser
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright (--mock, deterministic)
+        working-directory: e2e
+        run: npx playwright test

@@ -2,7 +2,7 @@
 
 TUIで扱える prowl 的なネットワークスキャナ（Rust製）。
 
-- ステータス: **P1＋P2＋P3 実装・実機live確認済**。無権限発見＋フルOUI＋名前解決チェーン＋無権限connectポートスキャン(TUI統合)＋**継続モニタ(10s自動再スキャン・死活差分: 新規=緑/離脱=赤、2ミスでDown確定、`m`でON/OFF)**。sudo版ARP/SYNも`Discovery`/`PortScanner`差し替えで将来追加可。
+- ステータス: **P1＋P2＋P3 実装・実機live確認済**。無権限発見＋フルOUI＋名前解決チェーン＋無権限connectポートスキャン(TUI統合)＋**継続モニタ(10s自動再スキャン・死活差分: 新規=緑/離脱=赤、2ミスでDown確定、`m`でON/OFF)**。sudo版ARP/SYNも`Discovery`/`PortScanner`差し替えで将来追加可。さらに **Web(DOM)フロント（`prowl-web`: axum+WebSocket, `--web`）** を追加（方針Aで2フロント目を実証）、`--mock`＋Playwright で e2e を決定論的に検証（CIにe2eジョブあり）。
 - ティア: Standard
 - 合意形態: 単独依頼者モード（依頼者の確認＝合意）
 - 最終更新: 2026-06-24
