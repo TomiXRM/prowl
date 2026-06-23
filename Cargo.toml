@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/prowl-app",
+    "crates/prowl-core",
+    "crates/prowl-tui",
+    "crates/prowl",
+]
+default-members = ["crates/prowl"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.96"
+
+[workspace.dependencies]
+# 内部クレート
+prowl-app = { path = "crates/prowl-app" }
+prowl-core = { path = "crates/prowl-core" }
+prowl-tui = { path = "crates/prowl-tui" }
+# 外部
+anyhow = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures-util = "0.3"

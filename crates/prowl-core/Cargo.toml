@@ -1,0 +1,18 @@
+[package]
+name = "prowl-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "prowl: UI非依存のスキャンエンジン (Discovery / Enricher / Engine)"
+
+[dependencies]
+prowl-app = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+futures-util = { workspace = true }
+pnet = "0.35"
+hickory-proto = "0.24"
+netneighbours = "0.1"
+dns-lookup = "2"
+mac_oui = { version = "0.4", features = ["with-db"] }

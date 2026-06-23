@@ -1,0 +1,15 @@
+[package]
+name = "prowl-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "prowl: ratatui フロントエンド (方針A)"
+
+[dependencies]
+prowl-app = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+futures-util = { workspace = true }

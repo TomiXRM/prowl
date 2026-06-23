@@ -1,0 +1,13 @@
+[package]
+name = "prowl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "prowl: TUIで扱うLANスキャナ（起動口）"
+
+[dependencies]
+prowl-app = { workspace = true }
+prowl-core = { workspace = true }
+prowl-tui = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }

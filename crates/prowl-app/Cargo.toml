@@ -1,0 +1,11 @@
+[package]
+name = "prowl-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "prowl: UI非依存の契約層 (Command / AppState / Frontend)"
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
