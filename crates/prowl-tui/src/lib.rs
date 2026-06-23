@@ -148,11 +148,17 @@ fn draw(f: &mut Frame, state: &AppState, visible: &[&HostRow], selected: usize, 
 
 fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
     let subnet = state.subnet.clone().unwrap_or_else(|| "(未検出)".into());
-    let scanning = if state.scanning { " [スキャン中…]" } else { "" };
+    let scanning = if state.scanning {
+        " [スキャン中…]"
+    } else {
+        ""
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "prowl",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  subnet: "),
         Span::styled(subnet, Style::default().fg(Color::Yellow)),
@@ -162,7 +168,12 @@ fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
     f.render_widget(header, area);
 }
 
-fn draw_host_table(f: &mut Frame, area: ratatui::layout::Rect, visible: &[&HostRow], selected: usize) {
+fn draw_host_table(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    visible: &[&HostRow],
+    selected: usize,
+) {
     let rows = visible.iter().map(|h| {
         let dash = || "-".to_string();
         let mark = match h.status {
@@ -224,7 +235,10 @@ fn draw_detail(
             ]));
             lines.push(kv("MAC  ", h.mac.clone().unwrap_or_else(|| "-".into())));
             lines.push(kv("Vendor", h.vendor.clone().unwrap_or_else(|| "-".into())));
-            lines.push(kv("Host ", h.hostname.clone().unwrap_or_else(|| "-".into())));
+            lines.push(kv(
+                "Host ",
+                h.hostname.clone().unwrap_or_else(|| "-".into()),
+            ));
             lines.push(Line::raw(""));
 
             let ps = &state.port_scan;
@@ -270,7 +284,8 @@ fn draw_detail(
         }
     }
 
-    let detail = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" detail "));
+    let detail =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" detail "));
     f.render_widget(detail, area);
 }
 

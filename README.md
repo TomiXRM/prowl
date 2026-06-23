@@ -1,5 +1,7 @@
 # prowl
 
+[![CI](https://github.com/TomiXRM/prowl/actions/workflows/ci.yml/badge.svg)](https://github.com/TomiXRM/prowl/actions/workflows/ci.yml)
+
 **A no-sudo TUI LAN scanner, written in Rust.**
 ネットワークに今なにが繋がっているかを、権限なしでサッと一覧する TUI ツール。
 

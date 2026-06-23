@@ -125,7 +125,10 @@ mod tests {
 
     #[test]
     fn banner_line_cleaned() {
-        assert_eq!(first_clean_line(b"SSH-2.0-OpenSSH_9.0\r\nrest"), "SSH-2.0-OpenSSH_9.0");
+        assert_eq!(
+            first_clean_line(b"SSH-2.0-OpenSSH_9.0\r\nrest"),
+            "SSH-2.0-OpenSSH_9.0"
+        );
     }
 
     #[test]

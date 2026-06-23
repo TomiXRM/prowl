@@ -163,7 +163,10 @@ impl Engine {
 
         // 確定報
         publish(known, state_tx, true);
-        let up = known.values().filter(|t| t.status != HostStatus::Down).count();
+        let up = known
+            .values()
+            .filter(|t| t.status != HostStatus::Down)
+            .count();
         let _ = evt_tx.send(Event::ScanFinished { found: up });
     }
 
@@ -218,7 +221,10 @@ async fn scan_ports_task(
 /// - 今回見つからない既知ホスト: ミス加算、[`DOWN_THRESHOLD`] 到達で Down
 /// - 見つかった既知ホスト: Up に復帰・ミスリセット
 /// - 未知ホスト: New として登録
-fn update_statuses(known: &mut BTreeMap<Ipv4Addr, Tracked>, discovered: Vec<Host>) -> Vec<Ipv4Addr> {
+fn update_statuses(
+    known: &mut BTreeMap<Ipv4Addr, Tracked>,
+    discovered: Vec<Host>,
+) -> Vec<Ipv4Addr> {
     let current: HashSet<Ipv4Addr> = discovered.iter().map(|h| h.ip).collect();
 
     for (ip, t) in known.iter_mut() {
@@ -258,13 +264,12 @@ fn update_statuses(known: &mut BTreeMap<Ipv4Addr, Tracked>, discovered: Vec<Host
 }
 
 /// 既知ホスト一覧を `AppState` に反映する（IP昇順＝BTreeMapの順）。
-fn publish(
-    known: &BTreeMap<Ipv4Addr, Tracked>,
-    state_tx: &watch::Sender<AppState>,
-    done: bool,
-) {
+fn publish(known: &BTreeMap<Ipv4Addr, Tracked>, state_tx: &watch::Sender<AppState>, done: bool) {
     let rows: Vec<HostRow> = known.values().map(|t| to_row(&t.host, t.status)).collect();
-    let down = known.values().filter(|t| t.status == HostStatus::Down).count();
+    let down = known
+        .values()
+        .filter(|t| t.status == HostStatus::Down)
+        .count();
     let up = known.len() - down;
     state_tx.send_modify(|s| {
         s.hosts = rows;

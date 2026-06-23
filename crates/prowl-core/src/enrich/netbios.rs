@@ -36,7 +36,7 @@ fn nbstat_query() -> Vec<u8> {
     q.extend_from_slice(&[0x00, 0x00]); // ANCOUNT
     q.extend_from_slice(&[0x00, 0x00]); // NSCOUNT
     q.extend_from_slice(&[0x00, 0x00]); // ARCOUNT
-    // 問い合わせ名: "*" を第一レベルエンコードした 32 バイト ("CK" + 'A'×30)
+                                        // 問い合わせ名: "*" を第一レベルエンコードした 32 バイト ("CK" + 'A'×30)
     q.push(0x20);
     q.push(b'C');
     q.push(b'K');

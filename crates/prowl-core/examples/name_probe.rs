@@ -13,7 +13,10 @@ use prowl_core::net;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args: Vec<Ipv4Addr> = std::env::args().skip(1).filter_map(|s| s.parse().ok()).collect();
+    let args: Vec<Ipv4Addr> = std::env::args()
+        .skip(1)
+        .filter_map(|s| s.parse().ok())
+        .collect();
     let ips = if args.is_empty() {
         let local = net::detect()?;
         let o = local.network.network().octets();

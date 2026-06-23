@@ -86,9 +86,15 @@ impl AppState {
             .iter()
             .filter(|h| {
                 h.ip.to_string().contains(&f)
-                    || h.mac.as_deref().is_some_and(|m| m.to_lowercase().contains(&f))
-                    || h.vendor.as_deref().is_some_and(|v| v.to_lowercase().contains(&f))
-                    || h.hostname.as_deref().is_some_and(|n| n.to_lowercase().contains(&f))
+                    || h.mac
+                        .as_deref()
+                        .is_some_and(|m| m.to_lowercase().contains(&f))
+                    || h.vendor
+                        .as_deref()
+                        .is_some_and(|v| v.to_lowercase().contains(&f))
+                    || h.hostname
+                        .as_deref()
+                        .is_some_and(|n| n.to_lowercase().contains(&f))
             })
             .collect()
     }
@@ -145,7 +151,10 @@ mod tests {
     #[test]
     fn empty_filter_shows_all() {
         let s = AppState {
-            hosts: vec![row([192, 168, 1, 1], "Apple"), row([192, 168, 1, 2], "VMware")],
+            hosts: vec![
+                row([192, 168, 1, 1], "Apple"),
+                row([192, 168, 1, 2], "VMware"),
+            ],
             ..Default::default()
         };
         assert_eq!(s.visible_hosts().len(), 2);
