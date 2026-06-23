@@ -64,38 +64,36 @@ impl TableDelegate for HostTableDelegate {
             return div().into_any_element();
         };
         let theme = cx.theme();
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
         match col_ix {
+            // IP（死活で色分け）— クリックでコピー
             0 => {
                 let (color, mark) = match h.status {
-                    HostStatus::Up => (theme.foreground, " "),
+                    HostStatus::Up => (fg, " "),
                     HostStatus::New => (theme.green, "+"),
                     HostStatus::Down => (theme.red, "×"),
                 };
-                let ip_str = h.ip.to_string();
-                let label = format!("{mark}{ip_str}");
-                // IP クリックでクリップボードへコピー
-                div()
-                    .id(("ip", row_ix))
-                    .cursor_pointer()
-                    .text_color(color)
-                    .child(label)
-                    .on_click(move |_, window, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(ip_str.clone()));
-                        window.push_notification(
-                            Notification::success(format!("コピー: {ip_str}")),
-                            cx,
-                        );
-                    })
-                    .into_any_element()
+                copyable_cell(
+                    "ip",
+                    row_ix,
+                    format!("{mark}{}", h.ip),
+                    h.ip.to_string(),
+                    color,
+                )
             }
-            1 => div()
-                .text_color(theme.muted_foreground)
-                .child(h.mac.clone().unwrap_or_else(|| "-".into()))
-                .into_any_element(),
-            2 => div()
-                .child(h.vendor.clone().unwrap_or_else(|| "-".into()))
-                .into_any_element(),
+            // MAC / Vendor — 値があればクリックでコピー
+            1 => match &h.mac {
+                Some(mac) => copyable_cell("mac", row_ix, mac.clone(), mac.clone(), muted),
+                None => div().text_color(muted).child("-").into_any_element(),
+            },
+            2 => match &h.vendor {
+                Some(v) => copyable_cell("vendor", row_ix, v.clone(), v.clone(), fg),
+                None => div().text_color(muted).child("-").into_any_element(),
+            },
+            // Hostname — クリックで行選択＋ポートスキャン
             3 => div()
+                .text_color(fg)
                 .child(h.hostname.clone().unwrap_or_else(|| "-".into()))
                 .into_any_element(),
             _ => div().into_any_element(),
@@ -267,6 +265,26 @@ impl ProwlView {
     }
 }
 
+/// クリックでクリップボードへコピーし成功トーストを出すセル。
+fn copyable_cell(
+    key: &'static str,
+    row_ix: usize,
+    display: String,
+    copy: String,
+    color: Hsla,
+) -> AnyElement {
+    div()
+        .id((key, row_ix))
+        .cursor_pointer()
+        .text_color(color)
+        .child(display)
+        .on_click(move |_, window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+            window.push_notification(Notification::success(format!("コピー: {copy}")), cx);
+        })
+        .into_any_element()
+}
+
 fn kv(key: &'static str, val: String, muted: Hsla, fg: Hsla) -> AnyElement {
     div()
         .flex()
@@ -374,7 +392,7 @@ pub fn run(handle: EngineHandle) {
             commands, state, ..
         } = handle;
 
-        let bounds = Bounds::centered(None, size(px(840.), px(420.)), cx);
+        let bounds = Bounds::centered(None, size(px(924.), px(420.)), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
