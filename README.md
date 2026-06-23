@@ -40,20 +40,31 @@
 ```sh
 git clone https://github.com/TomiXRM/prowl
 cd prowl
-cargo run            # TUI 起動（root 不要）
+cargo run                 # TUI 起動（root 不要）
+cargo run -- --web        # Web UI 起動 → http://127.0.0.1:7878
+cargo run -- --web --mock # 実NW非依存の決定論モード（デモ/テスト用）
 ```
 
 ```sh
 cargo build --release   # 単一バイナリ → target/release/prowl
-cargo test --workspace  # テスト
+cargo test --workspace  # Rust テスト
 ```
 
 対応環境: macOS (Apple Silicon / Intel) + Linux (x86_64 / arm64)、Rust 1.96+。
 
+### Web UI ＆ AI が回せる e2e テスト
+
+`--web` で同じエンジンを **ブラウザ(DOM)** に映す（TUI と同一の `Command`/`AppState` 契約）。
+DOM なので **Playwright** で end-to-end に検証でき、`--mock` と組み合わせると実LAN無しで決定論的に回せる：
+
+```sh
+cd e2e && npm ci && npx playwright install chromium && npx playwright test
+```
+
 ## しくみ（ざっくり）
 
 ```
- 提示の軸(外側)  TUI(ratatui) / GPUI(将来) / --json(将来)
+ 提示の軸(外側)  TUI(ratatui) / Web(DOM, WebSocket) / GPUI(将来)
         │  Command(操作)↓ / AppState(状態)↑   ← UI非依存の契約 (prowl-app)
  prowl-core (エンジン)
         │  Discovery / Enricher / PortScanner トレイト
@@ -65,6 +76,7 @@ cargo test --workspace  # テスト
 | `prowl-app` | UI非依存の契約（`Command`/`AppState`/`Frontend`） |
 | `prowl-core` | スキャンエンジン＋各トレイト実装（UI非依存・単体テスト可能） |
 | `prowl-tui` | `ratatui` フロントエンド |
+| `prowl-web` | Web(DOM) フロントエンド（axum + WebSocket、Playwright で検証可） |
 | `prowl` | 配線してフロントを起動する薄いバイナリ |
 
 拡張ポイントの例:
@@ -76,6 +88,8 @@ cargo test --workspace  # テスト
 
 ## ロードマップ
 
+- [x] Web(DOM) フロント＋ Playwright e2e
+- [ ] GPUI ネイティブフロント（longbridge gpui-component）
 - [ ] OS 推定（TTL/開放ポート指紋）
 - [ ] JSON / CSV エクスポート
 - [ ] mDNS サービスブラウズ（名前と機種情報の強化）

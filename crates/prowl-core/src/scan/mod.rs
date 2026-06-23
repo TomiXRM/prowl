@@ -5,6 +5,7 @@
 use std::net::Ipv4Addr;
 
 pub mod connect;
+pub mod mock;
 
 pub use connect::ConnectScanner;
 

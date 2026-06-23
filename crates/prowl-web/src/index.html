@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>prowl</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; flex-direction: column;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #0d1117; color: #c9d1d9;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px; border-bottom: 1px solid #21262d; background: #161b22;
+  }
+  header .logo { color: #58a6ff; font-weight: 700; }
+  header .subnet { color: #d29922; }
+  .badge { padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+  .badge.on { background: #1f6f3f; color: #aef0c0; }
+  .badge.off { background: #30363d; color: #8b949e; }
+  .conn-on { color: #3fb950; } .conn-off { color: #e25c5c; }
+  .toolbar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #21262d; }
+  button {
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: #58a6ff; }
+  input {
+    background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; padding: 4px 8px; font: inherit; flex: 1; max-width: 280px;
+  }
+  main { flex: 1; display: flex; min-height: 0; }
+  .hosts { flex: 1.4; overflow: auto; border-right: 1px solid #21262d; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 4px 10px; white-space: nowrap; }
+  th { position: sticky; top: 0; background: #161b22; color: #8b949e; font-weight: 600; }
+  tr.host { cursor: pointer; }
+  tr.host:hover { background: #161b22; }
+  tr.host.selected { background: #1f6feb44; }
+  tr.host .mark { width: 1em; display: inline-block; }
+  tr.status-New { color: #3fb950; }
+  tr.status-Down { color: #e25c5c; opacity: .65; }
+  .detail { flex: 1; overflow: auto; padding: 12px; }
+  .detail h2 { margin: 0 0 8px; font-size: 14px; }
+  .kv { color: #8b949e; }
+  .kv b { color: #c9d1d9; font-weight: 400; }
+  .pill { padding: 0 6px; border-radius: 8px; font-size: 11px; }
+  .pill.Up, .pill.New { background: #1f6f3f; color: #aef0c0; }
+  .pill.Down { background: #6f1f1f; color: #f0aeae; }
+  .port { padding: 2px 0; }
+  .port .pn { color: #58a6ff; } .port .svc { color: #c9d1d9; } .port .ban { color: #8b949e; }
+  .muted { color: #8b949e; }
+  footer { padding: 4px 12px; border-top: 1px solid #21262d; color: #8b949e; font-size: 12px; }
+</style>
+</head>
+<body>
+  <header>
+    <span class="logo">prowl</span>
+    <span>subnet: <span id="subnet" class="subnet" data-testid="subnet">—</span></span>
+    <span id="mon" class="badge off" data-testid="monitor-badge">監視 OFF</span>
+    <span id="conn" class="conn-off" data-testid="conn">●</span>
+  </header>
+
+  <div class="toolbar">
+    <button id="rescan" data-testid="btn-rescan">再スキャン</button>
+    <button id="monitor" data-testid="btn-monitor">監視 ON/OFF</button>
+    <input id="filter" data-testid="filter" placeholder="絞り込み (IP / MAC / vendor / host)" />
+    <span class="muted" data-testid="status">—</span>
+  </div>
+
+  <main>
+    <div class="hosts">
+      <table>
+        <thead><tr><th>IP</th><th>Vendor</th><th>Host</th></tr></thead>
+        <tbody id="rows" data-testid="host-rows"></tbody>
+      </table>
+    </div>
+    <div class="detail" id="detail" data-testid="detail">
+      <p class="muted">ホストを選んで Enter / クリックでポートスキャン</p>
+    </div>
+  </main>
+
+  <footer>クリックで選択＋ポートスキャン ／ 行色: <span style="color:#3fb950">緑=新規</span> <span style="color:#e25c5c">赤=離脱</span></footer>
+
+<script>
+let state = { hosts: [], port_scan: {} };
+let filterText = "";
+let selectedIp = null;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => (s ?? "").toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let ws;
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { $("#conn").className = "conn-on"; };
+  ws.onclose = () => { $("#conn").className = "conn-off"; setTimeout(connect, 1000); };
+  ws.onmessage = (e) => { state = JSON.parse(e.data); render(); };
+}
+function send(cmd) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(cmd)); }
+
+$("#rescan").onclick = () => send({ cmd: "Rescan" });
+$("#monitor").onclick = () => send({ cmd: "ToggleMonitor" });
+$("#filter").oninput = (e) => { filterText = e.target.value.toLowerCase(); render(); };
+
+function selectHost(ip) {
+  selectedIp = ip;
+  send({ cmd: "SelectHost", arg: ip });
+  send({ cmd: "ScanPorts", arg: ip });
+  render();
+}
+
+function match(h) {
+  if (!filterText) return true;
+  return [h.ip, h.mac, h.vendor, h.hostname].some(v => (v ?? "").toString().toLowerCase().includes(filterText));
+}
+
+function render() {
+  $("#subnet").textContent = state.subnet ?? "—";
+  $("[data-testid=status]").textContent = state.status ?? "";
+  const mon = $("#mon");
+  mon.textContent = state.monitoring ? "監視 ON" : "監視 OFF";
+  mon.className = "badge " + (state.monitoring ? "on" : "off");
+
+  const visible = (state.hosts || []).filter(match);
+  $("#rows").innerHTML = visible.map(h => {
+    const mark = h.status === "New" ? "+" : h.status === "Down" ? "×" : "";
+    const sel = h.ip === selectedIp ? " selected" : "";
+    return `<tr class="host status-${h.status}${sel}" data-testid="host-row" data-ip="${esc(h.ip)}" data-status="${h.status}" onclick="selectHost('${esc(h.ip)}')">
+      <td><span class="mark">${mark}</span>${esc(h.ip)}</td>
+      <td>${esc(h.vendor || "-")}</td>
+      <td>${esc(h.hostname || "-")}</td>
+    </tr>`;
+  }).join("");
+
+  renderDetail();
+}
+
+function renderDetail() {
+  const d = $("#detail");
+  const h = (state.hosts || []).find(x => x.ip === selectedIp);
+  if (!h) { d.innerHTML = `<p class="muted">ホストを選んでクリックでポートスキャン</p>`; return; }
+
+  let html = `<h2 data-testid="detail-ip">${esc(h.ip)} <span class="pill ${h.status}">${h.status}</span></h2>`;
+  html += `<div class="kv">MAC&nbsp;&nbsp;&nbsp;<b>${esc(h.mac || "-")}</b></div>`;
+  html += `<div class="kv">Vendor <b>${esc(h.vendor || "-")}</b></div>`;
+  html += `<div class="kv">Host&nbsp;&nbsp;<b>${esc(h.hostname || "-")}</b></div><br/>`;
+
+  const ps = state.port_scan || {};
+  if (ps.target === selectedIp) {
+    if (ps.state === "Scanning") {
+      html += `<div data-testid="scan-state" style="color:#3fb950">ポートスキャン中…</div>`;
+    } else if (ps.state === "Done") {
+      const open = ps.open || [];
+      html += `<div data-testid="scan-state"><b>開放ポート: ${open.length}</b></div>`;
+      if (!open.length) html += `<div class="muted">(なし)</div>`;
+      html += open.map(p => `<div class="port" data-testid="port" data-port="${p.port}">
+        <span class="pn">${p.port}/tcp</span> <span class="svc">${esc(p.service || "")}</span>
+        <span class="ban">${esc(p.banner || "")}</span></div>`).join("");
+    } else {
+      html += `<div class="muted" data-testid="scan-state">クリックでポートスキャン</div>`;
+    }
+  } else {
+    html += `<div class="muted" data-testid="scan-state">クリックでポートスキャン</div>`;
+  }
+  d.innerHTML = html;
+}
+
+connect();
+render();
+</script>
+</body>
+</html>

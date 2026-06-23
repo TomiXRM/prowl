@@ -9,3 +9,4 @@ description = "prowl: UI非依存の契約層 (Command / AppState / Frontend)"
 tokio = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
+serde = { workspace = true }

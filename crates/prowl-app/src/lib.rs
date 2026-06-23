@@ -9,13 +9,14 @@
 
 use std::net::Ipv4Addr;
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch};
 
 /// ホストの識別子。P1では IPv4 アドレスで一意とする。
 pub type HostId = Ipv4Addr;
 
 /// ホストの死活ステータス（継続モニタ用）。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum HostStatus {
     /// 生存中。
     #[default]
@@ -28,7 +29,7 @@ pub enum HostStatus {
 
 /// 一覧に表示する1行（ビューモデル）。
 /// コアの rich な `Host` 型ではなく、表示に必要な分だけを持つ＝境界の単純化。
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct HostRow {
     pub ip: Ipv4Addr,
     pub mac: Option<String>,
@@ -38,7 +39,7 @@ pub struct HostRow {
 }
 
 /// 開放ポート1件（表示用）。
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PortInfo {
     pub port: u16,
     pub service: Option<String>,
@@ -46,7 +47,7 @@ pub struct PortInfo {
 }
 
 /// 選択ホストのポートスキャン進捗。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum PortScanState {
     #[default]
     Idle,
@@ -55,7 +56,7 @@ pub enum PortScanState {
 }
 
 /// 選択ホストのポートスキャン結果。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct PortScan {
     pub target: Option<HostId>,
     pub state: PortScanState,
@@ -63,7 +64,7 @@ pub struct PortScan {
 }
 
 /// 画面に出す「今の全状態」。フロントはこれを描くだけ。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct AppState {
     pub subnet: Option<String>,
     pub hosts: Vec<HostRow>,
@@ -101,7 +102,9 @@ impl AppState {
 }
 
 /// ユーザの操作意図。各フロントは自分の入力をこれに翻訳する。
-#[derive(Clone, Debug)]
+/// JSON 表現は adjacently tagged: `{"cmd":"SelectHost","arg":"192.168.0.1"}`。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "cmd", content = "arg")]
 pub enum Command {
     Rescan,
     SelectHost(HostId),

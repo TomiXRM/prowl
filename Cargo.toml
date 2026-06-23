@@ -4,6 +4,7 @@ members = [
     "crates/prowl-app",
     "crates/prowl-core",
     "crates/prowl-tui",
+    "crates/prowl-web",
     "crates/prowl",
 ]
 default-members = ["crates/prowl"]
@@ -19,6 +20,7 @@ rust-version = "1.96"
 prowl-app = { path = "crates/prowl-app" }
 prowl-core = { path = "crates/prowl-core" }
 prowl-tui = { path = "crates/prowl-tui" }
+prowl-web = { path = "crates/prowl-web" }
 # 外部
 anyhow = "1"
 async-trait = "0.1"
@@ -26,3 +28,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.7", features = ["ws"] }
