@@ -91,11 +91,11 @@ impl TableDelegate for HostTableDelegate {
                 Some(v) => copyable_cell("vendor", row_ix, v.clone(), v.clone(), fg),
                 None => div().text_color(muted).child("-").into_any_element(),
             },
-            // Hostname — クリックで行選択＋ポートスキャン
-            3 => div()
-                .text_color(fg)
-                .child(h.hostname.clone().unwrap_or_else(|| "-".into()))
-                .into_any_element(),
+            // Hostname — 値があればクリックでコピー
+            3 => match &h.hostname {
+                Some(host) => copyable_cell("host", row_ix, host.clone(), host.clone(), fg),
+                None => div().text_color(muted).child("-").into_any_element(),
+            },
             _ => div().into_any_element(),
         }
     }
@@ -125,13 +125,16 @@ impl ProwlView {
             cx.notify();
         });
 
-        // 行クリック（SelectRow）→ そのホストをポートスキャン
+        // 行の選択 or ダブルクリック → そのホストをポートスキャン。
+        // 各セルはクリックでコピーを消費し得るので、ダブルクリックでも確実に走らせる。
         cx.subscribe(&table, |this, _table, event, cx| {
-            if let TableEvent::SelectRow(ix) = event {
-                if let Some(h) = this.state.hosts.get(*ix) {
-                    let ip = h.ip;
-                    this.select(ip, cx);
-                }
+            let ix = match event {
+                TableEvent::SelectRow(ix) | TableEvent::DoubleClickedRow(ix) => *ix,
+                _ => return,
+            };
+            if let Some(h) = this.state.hosts.get(ix) {
+                let ip = h.ip;
+                this.select(ip, cx);
             }
         })
         .detach();
