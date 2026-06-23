@@ -265,8 +265,8 @@ fn kv(key: &'static str, val: String, muted: Hsla, fg: Hsla) -> AnyElement {
 
 impl Render for ProwlView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 全体スケール: gpui は rem 単位。既定 16px → 13px に縮めて UI 全体を小さく。
-        window.set_rem_size(px(13.));
+        // 全体スケール: gpui は rem 単位。既定 16px の 0.8倍 = 12.8px で UI 全体を縮小。
+        window.set_rem_size(px(12.8));
         let theme = cx.theme();
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
@@ -299,13 +299,13 @@ impl Render for ProwlView {
             )
             .child(
                 Button::new("rescan")
-                    .xsmall()
+                    .small()
                     .label("再スキャン")
                     .on_click(cx.listener(|this, _, _, _| this.send(Command::Rescan))),
             )
             .child(
                 Button::new("monitor")
-                    .xsmall()
+                    .small()
                     .label("監視")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.send(Command::ToggleMonitor);
@@ -320,7 +320,7 @@ impl Render for ProwlView {
             .flex_1()
             .min_w_0()
             .h_full()
-            .child(Table::new(&self.table).stripe(true));
+            .child(Table::new(&self.table).stripe(true).xsmall());
 
         // --- 右: 詳細サイドペイン ---
         let detail = v_flex()
@@ -354,7 +354,7 @@ pub fn run(handle: EngineHandle) {
             commands, state, ..
         } = handle;
 
-        let bounds = Bounds::centered(None, size(px(760.), px(480.)), cx);
+        let bounds = Bounds::centered(None, size(px(840.), px(500.)), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
