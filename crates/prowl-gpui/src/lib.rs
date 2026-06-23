@@ -30,10 +30,10 @@ impl HostTableDelegate {
         Self {
             hosts: Vec::new(),
             columns: vec![
-                Column::new("ip", "IP").width(px(150.)),
-                Column::new("mac", "MAC").width(px(160.)),
-                Column::new("vendor", "Vendor").width(px(170.)),
-                Column::new("host", "Hostname").width(px(240.)),
+                Column::new("ip", "IP").width(px(120.)),
+                Column::new("mac", "MAC").width(px(140.)),
+                Column::new("vendor", "Vendor").width(px(150.)),
+                Column::new("host", "Hostname").width(px(190.)),
             ],
         }
     }
@@ -264,7 +264,9 @@ fn kv(key: &'static str, val: String, muted: Hsla, fg: Hsla) -> AnyElement {
 }
 
 impl Render for ProwlView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 全体スケール: gpui は rem 単位。既定 16px → 13px に縮めて UI 全体を小さく。
+        window.set_rem_size(px(13.));
         let theme = cx.theme();
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
@@ -279,9 +281,9 @@ impl Render for ProwlView {
 
         // --- ヘッダ ---
         let header = h_flex()
-            .gap_3()
-            .px_3()
-            .py_2()
+            .gap_2()
+            .px_2()
+            .py_1()
             .border_b_1()
             .border_color(border)
             .child(div().font_weight(FontWeight::BOLD).child("prowl"))
@@ -297,12 +299,14 @@ impl Render for ProwlView {
             )
             .child(
                 Button::new("rescan")
+                    .xsmall()
                     .label("再スキャン")
                     .on_click(cx.listener(|this, _, _, _| this.send(Command::Rescan))),
             )
             .child(
                 Button::new("monitor")
-                    .label("監視 ON/OFF")
+                    .xsmall()
+                    .label("監視")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.send(Command::ToggleMonitor);
                         cx.notify();
@@ -320,9 +324,9 @@ impl Render for ProwlView {
 
         // --- 右: 詳細サイドペイン ---
         let detail = v_flex()
-            .w(px(340.))
+            .w(px(260.))
             .h_full()
-            .p_3()
+            .p_2()
             .gap_1()
             .bg(panel)
             .border_l_1()
@@ -334,7 +338,7 @@ impl Render for ProwlView {
             .bg(bg)
             .text_color(fg)
             .font_family("Menlo")
-            .text_sm()
+            .text_xs()
             .child(header)
             .child(h_flex().flex_1().min_h_0().child(table).child(detail))
     }
@@ -350,7 +354,9 @@ pub fn run(handle: EngineHandle) {
             commands, state, ..
         } = handle;
 
+        let bounds = Bounds::centered(None, size(px(760.), px(480.)), cx);
         let opts = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
                 title: Some("prowl".into()),
                 ..Default::default()
