@@ -70,9 +70,17 @@ impl TableDelegate for HostTableDelegate {
                     HostStatus::New => (theme.green, "+"),
                     HostStatus::Down => (theme.red, "×"),
                 };
+                let ip_str = h.ip.to_string();
+                let label = format!("{mark}{ip_str}");
+                // IP クリックでクリップボードへコピー
                 div()
+                    .id(("ip", row_ix))
+                    .cursor_pointer()
                     .text_color(color)
-                    .child(format!("{mark}{}", h.ip))
+                    .child(label)
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(ip_str.clone()));
+                    })
                     .into_any_element()
             }
             1 => div()
@@ -265,8 +273,8 @@ fn kv(key: &'static str, val: String, muted: Hsla, fg: Hsla) -> AnyElement {
 
 impl Render for ProwlView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 全体スケール: gpui は rem 単位。既定 16px の 0.8倍 = 12.8px で UI 全体を縮小。
-        window.set_rem_size(px(12.8));
+        // 全体スケール: gpui は rem 単位。既定 16px の 0.7倍 = 11.2px で UI 全体を縮小。
+        window.set_rem_size(px(11.2));
         let theme = cx.theme();
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
@@ -354,7 +362,7 @@ pub fn run(handle: EngineHandle) {
             commands, state, ..
         } = handle;
 
-        let bounds = Bounds::centered(None, size(px(840.), px(500.)), cx);
+        let bounds = Bounds::centered(None, size(px(840.), px(420.)), cx);
         let opts = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
