@@ -1,0 +1,23 @@
+[package]
+name = "prowl-gpui"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "prowl: GPUI ネイティブフロントエンド (P4)"
+
+# 注: 重い git 依存(zed/gpui)のため、親 workspace から exclude している。
+# gpui / gpui_platform は gpui-component が pin する zed の rev に合わせる（1コピーに収束）。
+
+[features]
+# ウィンドウ起動部(gpui_platform/gpui_macos=Metalシェーダ要、macOSはフルXcode必須)。
+# 既定OFF。ビュー層(ProwlView/描画/bridge)は gpui コアのみで Metal 無しにビルド/検証できる。
+default = []
+desktop = ["dep:gpui_platform"]
+
+[dependencies]
+prowl-app = { path = "../prowl-app" }
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "3a80ff563f60ec14c57775c0287d251f10a57ac9" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", optional = true }

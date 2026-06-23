@@ -8,6 +8,9 @@ members = [
     "crates/prowl",
 ]
 default-members = ["crates/prowl"]
+# GPUI フロントは重いgit依存(zed/gpui)なので workspace から除外し、
+# 既定ビルド/CIを軽いまま保つ。`--features gpui` 時のみ bin から path で引く。
+exclude = ["crates/prowl-gpui"]
 
 [workspace.package]
 version = "0.1.0"
