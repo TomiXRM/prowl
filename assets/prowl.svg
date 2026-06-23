@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>prowl — LAN NIC</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#16242f"/>
+      <stop offset="1" stop-color="#0a1016"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#46596a"/>
+      <stop offset="0.5" stop-color="#34434f"/>
+      <stop offset="1" stop-color="#222e38"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe19a"/>
+      <stop offset="1" stop-color="#c8902f"/>
+    </linearGradient>
+    <radialGradient id="ledGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd089"/>
+      <stop offset="0.35" stop-color="#ff9a26"/>
+      <stop offset="1" stop-color="#ff8c1a" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="13"/>
+    </filter>
+  </defs>
+
+  <!-- app background -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+  <rect x="17" y="17" width="478" height="478" rx="107" fill="none" stroke="#23394a" stroke-width="2"/>
+
+  <!-- RJ45 jack (LAN NIC port) -->
+  <g>
+    <!-- metal shield / frame -->
+    <rect x="104" y="150" width="304" height="196" rx="22" fill="url(#shield)" stroke="#0b1318" stroke-width="5"/>
+    <!-- cable opening, keyed (notch tab at bottom) -->
+    <path d="M138 184
+             h236 a10 10 0 0 1 10 10
+             v78 a10 10 0 0 1 -10 10
+             h-58 v20 a10 10 0 0 1 -10 10
+             h-80 a10 10 0 0 1 -10 -10 v-20
+             h-58 a10 10 0 0 1 -10 -10
+             v-78 a10 10 0 0 1 10 -10 z"
+          fill="#0b1217" stroke="#52616e" stroke-width="3"/>
+    <!-- gold contacts (8 pins) -->
+    <g fill="url(#pin)">
+      <rect x="156" y="196" width="13" height="52" rx="3"/>
+      <rect x="183" y="196" width="13" height="52" rx="3"/>
+      <rect x="210" y="196" width="13" height="52" rx="3"/>
+      <rect x="237" y="196" width="13" height="52" rx="3"/>
+      <rect x="264" y="196" width="13" height="52" rx="3"/>
+      <rect x="291" y="196" width="13" height="52" rx="3"/>
+      <rect x="318" y="196" width="13" height="52" rx="3"/>
+      <rect x="345" y="196" width="13" height="52" rx="3"/>
+    </g>
+  </g>
+
+  <!-- status LEDs row -->
+  <!-- orange activity LED, glowing -->
+  <circle cx="168" cy="398" r="40" fill="url(#ledGlow)" filter="url(#glow)"/>
+  <circle cx="168" cy="398" r="17" fill="#fff0d6"/>
+  <circle cx="168" cy="398" r="17" fill="none" stroke="#ff8c1a" stroke-width="4"/>
+  <!-- link LED, dim -->
+  <circle cx="344" cy="398" r="15" fill="#16313a"/>
+  <circle cx="344" cy="398" r="15" fill="none" stroke="#2c4a55" stroke-width="3"/>
+</svg>
