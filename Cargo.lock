@@ -4607,7 +4607,7 @@ dependencies = [
 
 [[package]]
 name = "prowl"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "prowl-app",
@@ -4621,7 +4621,7 @@ dependencies = [
 
 [[package]]
 name = "prowl-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4631,7 +4631,7 @@ dependencies = [
 
 [[package]]
 name = "prowl-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4647,7 +4647,7 @@ dependencies = [
 
 [[package]]
 name = "prowl-gpui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "gpui",
@@ -4659,7 +4659,7 @@ dependencies = [
 
 [[package]]
 name = "prowl-tui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4672,7 +4672,7 @@ dependencies = [
 
 [[package]]
 name = "prowl-update"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "sha2",
  "tempfile",
@@ -4681,7 +4681,7 @@ dependencies = [
 
 [[package]]
 name = "prowl-web"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
