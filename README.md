@@ -1,9 +1,16 @@
+<div align="center">
+
+<img src="assets/prowl.png" alt="prowl" width="120" />
+
 # prowl
 
 [![CI](https://github.com/TomiXRM/prowl/actions/workflows/ci.yml/badge.svg)](https://github.com/TomiXRM/prowl/actions/workflows/ci.yml)
 
-**A no-sudo TUI LAN scanner, written in Rust.**
-ネットワークに今なにが繋がっているかを、権限なしでサッと一覧する TUI ツール。
+**A no-sudo TUI / Web / GUI LAN scanner, written in Rust.**
+
+</div>
+
+ネットワークに今なにが繋がっているかを、権限なしでサッと一覧する TUI / Web / GUI ツール。
 
 `prowl` はローカルLANの端末を発見し、**IP / MAC / ベンダー / ホスト名 / 開放ポート** を一画面で見せ、
 さらに**死活を継続監視**して新規/離脱端末を色で知らせます。`nmap` や `arp-scan` のように root を要求しません。
