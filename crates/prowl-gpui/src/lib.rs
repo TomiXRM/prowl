@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use gpui::*;
 use gpui_component::notification::Notification;
+use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::table::{Column, Table, TableDelegate, TableEvent, TableState};
 use gpui_component::{button::*, *};
 use prowl_app::{AppState, Command, EngineHandle, HostRow, HostStatus, PortScanState};
@@ -128,6 +129,8 @@ struct ProwlView {
     commands: mpsc::Sender<Command>,
     selected: Option<Ipv4Addr>,
     table: Entity<TableState<HostTableDelegate>>,
+    /// NIC 選択プルダウン（候補名の Select）。
+    nic_select: Entity<SelectState<Vec<String>>>,
     /// セルフアップデートの状態（バックグラウンドスレッドと共有）。
     update_ui: Arc<Mutex<UpdateUi>>,
 }
@@ -185,6 +188,27 @@ impl ProwlView {
         })
         .detach();
 
+        // NIC プルダウン。起動時の候補一覧と現在NICで初期化（候補名の Select）。
+        let nic_names: Vec<String> = state.interfaces.iter().map(|i| i.name.clone()).collect();
+        let nic_sel_ix = state
+            .current_iface
+            .as_ref()
+            .and_then(|cur| nic_names.iter().position(|n| n == cur))
+            .map(|ix| IndexPath::default().row(ix));
+        let nic_select = cx.new(|cx| SelectState::new(nic_names, nic_sel_ix, window, cx));
+        // 選択確定 → そのNICへ切替コマンドを送る。
+        cx.subscribe(
+            &nic_select,
+            |this, _select, event: &SelectEvent<Vec<String>>, cx| {
+                let SelectEvent::Confirm(Some(name)) = event else {
+                    return;
+                };
+                this.send(Command::SelectInterface(name.clone()));
+                cx.notify();
+            },
+        )
+        .detach();
+
         // 起動時にバックグラウンドで最新リリースを確認（best-effort・失敗は静か）。
         // ネットワークはブロッキングなので OS スレッドで回し、結果は共有状態へ。
         let update_ui = Arc::new(Mutex::new(UpdateUi::Idle));
@@ -206,6 +230,7 @@ impl ProwlView {
             commands,
             selected: None,
             table,
+            nic_select,
             update_ui,
         }
     }
@@ -413,6 +438,19 @@ impl Render for ProwlView {
         let monitoring = self.state.monitoring;
         let status = self.state.status.clone();
 
+        // --- NIC プルダウン（候補が複数あるときだけ表示）---
+        let nic_selector: Option<AnyElement> = if self.state.interfaces.len() > 1 {
+            Some(
+                Select::new(&self.nic_select)
+                    .small()
+                    .title_prefix("NIC: ")
+                    .menu_width(px(200.))
+                    .into_any_element(),
+            )
+        } else {
+            None
+        };
+
         // --- ヘッダ ---
         let header = h_flex()
             .gap_2()
@@ -422,6 +460,7 @@ impl Render for ProwlView {
             .border_color(border)
             .child(div().font_weight(FontWeight::BOLD).child("prowl"))
             .child(div().text_color(muted).child(format!("subnet: {subnet}")))
+            .children(nic_selector)
             .child(
                 div()
                     .text_color(if monitoring { accent_green } else { muted })

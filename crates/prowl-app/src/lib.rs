@@ -63,6 +63,14 @@ pub struct PortScan {
     pub open: Vec<PortInfo>,
 }
 
+/// 選択候補のネットワークインターフェース（表示用）。
+#[derive(Clone, Debug, Serialize)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub ipv4: String,
+    pub cidr: String,
+}
+
 /// 画面に出す「今の全状態」。フロントはこれを描くだけ。
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct AppState {
@@ -74,6 +82,10 @@ pub struct AppState {
     pub filter: String,
     pub status: String,
     pub port_scan: PortScan,
+    /// スキャンに使える候補NIC（複数 up 時に切替UIを出す）。
+    pub interfaces: Vec<InterfaceInfo>,
+    /// 現在スキャンに使っているNIC名。
+    pub current_iface: Option<String>,
 }
 
 impl AppState {
@@ -111,6 +123,8 @@ pub enum Command {
     ScanPorts(HostId),
     SetFilter(String),
     ToggleMonitor,
+    /// 使用するNICを名前で切り替える（実行中・サブネット再計算→再スキャン）。
+    SelectInterface(String),
     Quit,
 }
 

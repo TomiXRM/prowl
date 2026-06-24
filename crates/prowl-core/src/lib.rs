@@ -10,5 +10,5 @@ pub mod model;
 pub mod net;
 pub mod scan;
 
-pub use engine::Engine;
+pub use engine::{DiscoveryFactory, Engine};
 pub use model::{Host, MacAddr, Subnet};

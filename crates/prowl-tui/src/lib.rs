@@ -13,10 +13,12 @@ use crossterm::terminal::{
 use futures_util::StreamExt;
 use prowl_app::{AppState, Command, EngineHandle, Frontend, HostRow, HostStatus, PortScanState};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{
+    Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState,
+};
 use ratatui::{Frame, Terminal};
 
 type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -44,6 +46,9 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
 
     let mut input = EventStream::new();
     let mut filter_mode = false;
+    // NIC 選択ポップアップ（`i` で開く擬似プルダウン）。
+    let mut iface_mode = false;
+    let mut iface_cursor: usize = 0;
     let mut selected: usize = 0;
 
     loop {
@@ -54,7 +59,17 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
         }
         let selected_ip = visible.get(selected).map(|h| h.ip);
 
-        term.draw(|f| draw(f, &snapshot, &visible, selected, filter_mode))?;
+        term.draw(|f| {
+            draw(
+                f,
+                &snapshot,
+                &visible,
+                selected,
+                filter_mode,
+                iface_mode,
+                iface_cursor,
+            )
+        })?;
 
         tokio::select! {
             changed = state.changed() => {
@@ -65,6 +80,32 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
             maybe_ev = input.next() => {
                 let Some(Ok(CtEvent::Key(key))) = maybe_ev else { continue };
                 if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
+                // NIC 選択ポップアップ表示中はそちらに入力を吸わせる（擬似プルダウン）。
+                if iface_mode {
+                    let ifaces = &snapshot.interfaces;
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('i') | KeyCode::Char('q') => iface_mode = false,
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if !ifaces.is_empty() {
+                                iface_cursor = (iface_cursor + 1).min(ifaces.len() - 1);
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            iface_cursor = iface_cursor.saturating_sub(1);
+                        }
+                        KeyCode::Enter => {
+                            if let Some(nic) = ifaces.get(iface_cursor) {
+                                let _ = commands
+                                    .send(Command::SelectInterface(nic.name.clone()))
+                                    .await;
+                            }
+                            iface_mode = false;
+                        }
+                        _ => {}
+                    }
                     continue;
                 }
 
@@ -99,6 +140,19 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
                         let _ = commands.send(Command::Rescan).await;
                     }
                     KeyCode::Char('/') => filter_mode = true,
+                    KeyCode::Char('i') => {
+                        // 候補が複数あるときだけ NIC ピッカーを開く。
+                        if snapshot.interfaces.len() > 1 {
+                            iface_mode = true;
+                            iface_cursor = snapshot
+                                .current_iface
+                                .as_ref()
+                                .and_then(|cur| {
+                                    snapshot.interfaces.iter().position(|n| &n.name == cur)
+                                })
+                                .unwrap_or(0);
+                        }
+                    }
                     KeyCode::Char('m') => {
                         let _ = commands.send(Command::ToggleMonitor).await;
                     }
@@ -124,7 +178,16 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
     Ok(())
 }
 
-fn draw(f: &mut Frame, state: &AppState, visible: &[&HostRow], selected: usize, filter_mode: bool) {
+#[allow(clippy::too_many_arguments)]
+fn draw(
+    f: &mut Frame,
+    state: &AppState,
+    visible: &[&HostRow],
+    selected: usize,
+    filter_mode: bool,
+    iface_mode: bool,
+    iface_cursor: usize,
+) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -144,6 +207,57 @@ fn draw(f: &mut Frame, state: &AppState, visible: &[&HostRow], selected: usize, 
     draw_host_table(f, body[0], visible, selected);
     draw_detail(f, body[1], state, visible.get(selected).copied());
     draw_footer(f, rows[2], state, filter_mode);
+
+    // NIC ピッカーは最後にオーバーレイ描画する（擬似プルダウン）。
+    if iface_mode {
+        draw_iface_popup(f, state, iface_cursor);
+    }
+}
+
+/// 中央寄せの `width`×`height` の矩形を返す（`area` をはみ出さないようクランプ）。
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let w = width.min(area.width);
+    let h = height.min(area.height);
+    Rect {
+        x: area.x + (area.width.saturating_sub(w)) / 2,
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        width: w,
+        height: h,
+    }
+}
+
+/// NIC 選択ポップアップ（擬似プルダウン）。`●` が現在のNIC、`▌` がカーソル。
+fn draw_iface_popup(f: &mut Frame, state: &AppState, cursor: usize) {
+    let ifaces = &state.interfaces;
+    let height = (ifaces.len() as u16).saturating_add(2).min(f.area().height);
+    let popup = centered_rect(52, height, f.area());
+
+    let items: Vec<ListItem> = ifaces
+        .iter()
+        .map(|nic| {
+            let cur = if state.current_iface.as_deref() == Some(nic.name.as_str()) {
+                "●"
+            } else {
+                " "
+            };
+            ListItem::new(format!("{cur} {:<12} {}", nic.name, nic.cidr))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" NIC を選択  (↑↓ / Enter 決定 / Esc 取消) "),
+        )
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan))
+        .highlight_symbol("▌");
+
+    let mut ls = ListState::default();
+    ls.select(Some(cursor.min(ifaces.len().saturating_sub(1))));
+
+    f.render_widget(Clear, popup); // 背景を消してから重ねる
+    f.render_stateful_widget(list, popup, &mut ls);
 }
 
 fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
@@ -153,6 +267,11 @@ fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
     } else {
         ""
     };
+    let nic = state
+        .current_iface
+        .clone()
+        .map(|n| format!("  nic: {n}"))
+        .unwrap_or_default();
     let header = Paragraph::new(Line::from(vec![
         Span::styled(
             "prowl",
@@ -162,6 +281,7 @@ fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
         ),
         Span::raw("  subnet: "),
         Span::styled(subnet, Style::default().fg(Color::Yellow)),
+        Span::styled(nic, Style::default().fg(Color::Magenta)),
         Span::styled(scanning, Style::default().fg(Color::Green)),
     ]))
     .block(Block::default().borders(Borders::ALL));
@@ -307,7 +427,7 @@ fn draw_footer(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState, fil
             Span::raw("  "),
             Span::raw(state.status.clone()),
             Span::styled(
-                "   [↑↓]選択 [Enter]ポート [m]監視 [r]再 [/]絞込 [q]終了",
+                "   [↑↓]選択 [Enter]ポート [m]監視 [r]再 [/]絞込 [i]NIC [q]終了",
                 Style::default().fg(Color::DarkGray),
             ),
         ])

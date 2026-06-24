@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::io::{IsTerminal, Write};
 
 use anyhow::{anyhow, Context, Result};
-use prowl_app::Frontend;
+use prowl_app::{Frontend, InterfaceInfo};
 use prowl_core::discovery::mock::MockDiscovery;
 use prowl_core::discovery::{ping_neigh::PingNeighborDiscovery, Discovery};
 use prowl_core::enrich::{
@@ -27,7 +27,7 @@ use prowl_core::enrich::{
     Enricher,
 };
 use prowl_core::scan::{mock::MockScanner, ConnectScanner, PortScanner};
-use prowl_core::{net, Engine, Subnet};
+use prowl_core::{net, net::LocalNet, DiscoveryFactory, Engine, Subnet};
 use prowl_tui::TuiFrontend;
 use prowl_web::WebFrontend;
 
@@ -97,6 +97,20 @@ fn main() -> Result<()> {
         Some(l) => l.subnet(),
         None => Subnet::new("192.168.1.0/24"),
     };
+    // NIC 切替UI用の候補一覧と現在NIC（local を消費する前に取得）。
+    let interfaces: Vec<InterfaceInfo> = if use_mock {
+        Vec::new()
+    } else {
+        net::list()
+            .iter()
+            .map(|l| InterfaceInfo {
+                name: l.name().to_string(),
+                ipv4: l.ipv4.to_string(),
+                cidr: l.subnet().cidr.clone(),
+            })
+            .collect()
+    };
+    let current_iface = local.as_ref().map(|l| l.name().to_string());
     let discovery: Arc<dyn Discovery> = match local {
         Some(l) => Arc::new(PingNeighborDiscovery::new(l)),
         None => Arc::new(MockDiscovery),
@@ -114,6 +128,14 @@ fn main() -> Result<()> {
     }
 
     let engine = Engine::new(subnet, discovery, enrichers, scanner);
+    // 実機モードのみ実行中NIC切替を有効化（factory が新NICから発見器を作り直す）。
+    let engine = if use_mock {
+        engine
+    } else {
+        let factory: DiscoveryFactory =
+            Arc::new(|l: LocalNet| Arc::new(PingNeighborDiscovery::new(l)) as Arc<dyn Discovery>);
+        engine.with_nic_switching(interfaces, current_iface, factory)
+    };
     // engine.spawn() は内部で tokio::spawn するため、ランタイムコンテキストで呼ぶ。
     let handle = {
         let _guard = rt.enter();

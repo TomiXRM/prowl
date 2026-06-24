@@ -7,14 +7,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use prowl_app::{
-    AppState, Command, EngineHandle, Event, HostId, HostRow, HostStatus, PortInfo, PortScanState,
+    AppState, Command, EngineHandle, Event, HostId, HostRow, HostStatus, InterfaceInfo, PortInfo,
+    PortScanState,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::discovery::Discovery;
 use crate::enrich::Enricher;
 use crate::model::{Host, Subnet};
+use crate::net::{self, LocalNet};
 use crate::scan::{PortScanner, COMMON_PORTS};
+
+/// 実行中の NIC 切替で、新しい [`LocalNet`] から発見器を作り直す工場。
+/// bin 側が「どの Discovery 実装を使うか」をここに注入する（コアは具体実装を知らない）。
+pub type DiscoveryFactory = Arc<dyn Fn(LocalNet) -> Arc<dyn Discovery> + Send + Sync>;
 
 /// 継続モニタの再スキャン間隔。
 const MONITOR_INTERVAL: Duration = Duration::from_secs(10);
@@ -33,6 +39,12 @@ pub struct Engine {
     discovery: Arc<dyn Discovery>,
     enrichers: Vec<Arc<dyn Enricher>>,
     scanner: Arc<dyn PortScanner>,
+    /// 切替候補のNIC一覧（UIのピッカー用）。空なら切替UIを出さない。
+    interfaces: Vec<InterfaceInfo>,
+    /// 現在使用中のNIC名。
+    current_iface: Option<String>,
+    /// 実行中NIC切替で発見器を作り直す工場（None＝切替不可、例: mock）。
+    discovery_factory: Option<DiscoveryFactory>,
 }
 
 impl Engine {
@@ -47,7 +59,24 @@ impl Engine {
             discovery,
             enrichers,
             scanner,
+            interfaces: Vec::new(),
+            current_iface: None,
+            discovery_factory: None,
         }
+    }
+
+    /// 実行中のNIC切替を有効化する（候補一覧・現在NIC・発見器工場を与える）。
+    /// 与えなければ `SelectInterface` は無視される（mock 等）。
+    pub fn with_nic_switching(
+        mut self,
+        interfaces: Vec<InterfaceInfo>,
+        current: Option<String>,
+        factory: DiscoveryFactory,
+    ) -> Self {
+        self.interfaces = interfaces;
+        self.current_iface = current;
+        self.discovery_factory = Some(factory);
+        self
     }
 
     /// エンジンを背後タスクとして起動し、フロント用ハンドルを返す。
@@ -57,6 +86,8 @@ impl Engine {
             subnet: Some(self.subnet.cidr.clone()),
             monitoring: true,
             status: "起動中…".to_string(),
+            interfaces: self.interfaces.clone(),
+            current_iface: self.current_iface.clone(),
             ..Default::default()
         });
         let (evt_tx, evt_rx) = broadcast::channel::<Event>(64);
@@ -76,12 +107,25 @@ impl Engine {
         state_tx: watch::Sender<AppState>,
         evt_tx: broadcast::Sender<Event>,
     ) {
+        // NIC 切替で発見器・サブネットが差し替わり得るので、self を解体して可変に持つ。
+        let Engine {
+            mut subnet,
+            mut discovery,
+            enrichers,
+            scanner,
+            discovery_factory,
+            ..
+        } = self;
+
         // 既知ホストをスキャン横断で保持し、死活ステータスを追跡する（FR-10）。
         let mut known: BTreeMap<Ipv4Addr, Tracked> = BTreeMap::new();
         let mut monitoring = true;
 
         // 起動直後に一度スキャン
-        self.scan_round(&mut known, &state_tx, &evt_tx).await;
+        scan_round(
+            &subnet, &discovery, &enrichers, &mut known, &state_tx, &evt_tx,
+        )
+        .await;
 
         // 定期再スキャン用タイマー（FR-09）。最初の即時 tick は捨てる。
         let mut ticker = tokio::time::interval(MONITOR_INTERVAL);
@@ -92,12 +136,14 @@ impl Engine {
                 cmd = cmd_rx.recv() => {
                     let Some(cmd) = cmd else { break };
                     match cmd {
-                        Command::Rescan => self.scan_round(&mut known, &state_tx, &evt_tx).await,
+                        Command::Rescan => {
+                            scan_round(&subnet, &discovery, &enrichers, &mut known, &state_tx, &evt_tx).await
+                        }
                         Command::SetFilter(f) => state_tx.send_modify(|s| s.filter = f),
                         Command::SelectHost(id) => state_tx.send_modify(|s| s.selected = Some(id)),
                         Command::ScanPorts(id) => {
                             // ポートスキャンは数秒かかるので別タスクへ（コマンドループを塞がない）
-                            let scanner = self.scanner.clone();
+                            let scanner = scanner.clone();
                             let state_tx = state_tx.clone();
                             tokio::spawn(scan_ports_task(id, scanner, state_tx));
                         }
@@ -105,85 +151,133 @@ impl Engine {
                             monitoring = !monitoring;
                             state_tx.send_modify(|s| s.monitoring = monitoring);
                         }
+                        Command::SelectInterface(name) => {
+                            switch_interface(
+                                &name,
+                                &discovery_factory,
+                                &mut subnet,
+                                &mut discovery,
+                                &mut known,
+                                &state_tx,
+                            );
+                            // 切替できたときだけ即再スキャン（state の current_iface が一致＝成功印）
+                            if state_tx.borrow().current_iface.as_deref() == Some(name.as_str()) {
+                                scan_round(&subnet, &discovery, &enrichers, &mut known, &state_tx, &evt_tx).await;
+                            }
+                        }
                         Command::Quit => break,
                     }
                 }
                 _ = ticker.tick() => {
                     if monitoring {
-                        self.scan_round(&mut known, &state_tx, &evt_tx).await;
+                        scan_round(&subnet, &discovery, &enrichers, &mut known, &state_tx, &evt_tx).await;
                     }
                 }
             }
         }
     }
+}
 
-    /// 1巡のスキャン: 発見 → 死活ステータス更新 → 新規のみ付与 → 反映。
-    async fn scan_round(
-        &self,
-        known: &mut BTreeMap<Ipv4Addr, Tracked>,
-        state_tx: &watch::Sender<AppState>,
-        evt_tx: &broadcast::Sender<Event>,
-    ) {
-        state_tx.send_modify(|s| {
-            s.scanning = true;
-            s.status = format!("{} をスキャン中…", s.subnet.clone().unwrap_or_default());
-        });
-        let _ = evt_tx.send(Event::ScanStarted);
+/// `SelectInterface` の本体: 名前から新しい NIC を解決し、発見器/サブネットを差し替え、
+/// 追跡状態をリセットする。工場が無い（mock）/解決失敗時は状態のステータスだけ更新する。
+fn switch_interface(
+    name: &str,
+    factory: &Option<DiscoveryFactory>,
+    subnet: &mut Subnet,
+    discovery: &mut Arc<dyn Discovery>,
+    known: &mut BTreeMap<Ipv4Addr, Tracked>,
+    state_tx: &watch::Sender<AppState>,
+) {
+    let Some(make) = factory else {
+        return; // 切替不可（mock 等）
+    };
+    match net::detect_named(name) {
+        Ok(local) => {
+            *subnet = local.subnet();
+            *discovery = make(local);
+            known.clear();
+            let cidr = subnet.cidr.clone();
+            let name = name.to_string();
+            state_tx.send_modify(|s| {
+                s.subnet = Some(cidr);
+                s.current_iface = Some(name.clone());
+                s.hosts.clear();
+                s.selected = None;
+                s.port_scan = Default::default();
+                s.status = format!("{name} に切替、再スキャン中…");
+            });
+        }
+        Err(e) => state_tx.send_modify(|s| s.status = format!("NIC切替失敗: {e}")),
+    }
+}
 
-        let discovered = match self.discovery.discover(&self.subnet).await {
-            Ok(hosts) => hosts,
-            Err(err) => {
-                state_tx.send_modify(|s| {
-                    s.scanning = false;
-                    s.status = format!("スキャン失敗: {err}");
-                });
-                let _ = evt_tx.send(Event::Error(err.to_string()));
-                return;
-            }
-        };
-        // 死活ステータスを更新し、新規ホストの IP を得る
-        let fresh = update_statuses(known, discovered);
+/// 1巡のスキャン: 発見 → 死活ステータス更新 → 新規のみ付与 → 反映。
+async fn scan_round(
+    subnet: &Subnet,
+    discovery: &Arc<dyn Discovery>,
+    enrichers: &[Arc<dyn Enricher>],
+    known: &mut BTreeMap<Ipv4Addr, Tracked>,
+    state_tx: &watch::Sender<AppState>,
+    evt_tx: &broadcast::Sender<Event>,
+) {
+    state_tx.send_modify(|s| {
+        s.scanning = true;
+        s.status = format!("{} をスキャン中…", s.subnet.clone().unwrap_or_default());
+    });
+    let _ = evt_tx.send(Event::ScanStarted);
 
-        // 第一報（発見直後に反映）
-        publish(known, state_tx, false);
+    let discovered = match discovery.discover(subnet).await {
+        Ok(hosts) => hosts,
+        Err(err) => {
+            state_tx.send_modify(|s| {
+                s.scanning = false;
+                s.status = format!("スキャン失敗: {err}");
+            });
+            let _ = evt_tx.send(Event::Error(err.to_string()));
+            return;
+        }
+    };
+    // 死活ステータスを更新し、新規ホストの IP を得る
+    let fresh = update_statuses(known, discovered);
 
-        // 3) 新規ホストだけ付与（既知は前回の名前/ベンダーを維持＝モニタを軽く保つ）
-        if !fresh.is_empty() {
-            let to_enrich: Vec<Host> = fresh
-                .iter()
-                .filter_map(|ip| known.get(ip).map(|t| t.host.clone()))
-                .collect();
-            for h in self.enrich_all(to_enrich).await {
-                if let Some(t) = known.get_mut(&h.ip) {
-                    t.host.hostname = h.hostname;
-                    t.host.vendor = h.vendor;
-                }
+    // 第一報（発見直後に反映）
+    publish(known, state_tx, false);
+
+    // 3) 新規ホストだけ付与（既知は前回の名前/ベンダーを維持＝モニタを軽く保つ）
+    if !fresh.is_empty() {
+        let to_enrich: Vec<Host> = fresh
+            .iter()
+            .filter_map(|ip| known.get(ip).map(|t| t.host.clone()))
+            .collect();
+        for h in enrich_all(enrichers, to_enrich).await {
+            if let Some(t) = known.get_mut(&h.ip) {
+                t.host.hostname = h.hostname;
+                t.host.vendor = h.vendor;
             }
         }
-
-        // 確定報
-        publish(known, state_tx, true);
-        let up = known
-            .values()
-            .filter(|t| t.status != HostStatus::Down)
-            .count();
-        let _ = evt_tx.send(Event::ScanFinished { found: up });
     }
 
-    /// 各ホストを並列に付与する（各ホスト内では Enricher を順番に適用）。
-    async fn enrich_all(&self, hosts: Vec<Host>) -> Vec<Host> {
-        let enrichers = self.enrichers.clone();
-        let futs = hosts.into_iter().map(|mut h| {
-            let enrichers = enrichers.clone();
-            async move {
-                for e in &enrichers {
-                    e.enrich(&mut h).await;
-                }
-                h
+    // 確定報
+    publish(known, state_tx, true);
+    let up = known
+        .values()
+        .filter(|t| t.status != HostStatus::Down)
+        .count();
+    let _ = evt_tx.send(Event::ScanFinished { found: up });
+}
+
+/// 各ホストを並列に付与する（各ホスト内では Enricher を順番に適用）。
+async fn enrich_all(enrichers: &[Arc<dyn Enricher>], hosts: Vec<Host>) -> Vec<Host> {
+    let futs = hosts.into_iter().map(|mut h| {
+        let enrichers = enrichers.to_vec();
+        async move {
+            for e in &enrichers {
+                e.enrich(&mut h).await;
             }
-        });
-        futures_util::future::join_all(futs).await
-    }
+            h
+        }
+    });
+    futures_util::future::join_all(futs).await
 }
 
 /// 1ホストのポートスキャンを実行し、結果を `AppState` に反映する（別タスク）。
