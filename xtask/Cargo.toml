@@ -1,0 +1,9 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "prowl build/bundle helper (mac .app/.dmg, linux tar.gz). Stdlib-only."
+
+[dependencies]

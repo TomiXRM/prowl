@@ -6,6 +6,7 @@ members = [
     "crates/prowl-tui",
     "crates/prowl-web",
     "crates/prowl",
+    "xtask",
 ]
 default-members = ["crates/prowl"]
 # GPUI フロントは重いgit依存(zed/gpui)なので workspace から除外し、

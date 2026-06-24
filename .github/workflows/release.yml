@@ -1,0 +1,70 @@
+name: release
+
+# `v*` タグ push（または手動）で macOS(.app/.dmg) と Linux(tar.gz) を作り、
+# チェックサムと共に DRAFT リリースへアップロードする（公開は手動レビュー後）。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos-arm64
+            kind: macos
+          - os: ubuntu-latest
+            target: linux-x86_64
+            kind: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # GPUI(Blade) の Linux ビルド依存
+      - name: Install Linux system dependencies
+        if: matrix.kind == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
+            libasound2-dev libvulkan-dev libzstd-dev
+
+      - name: Bundle macOS (.app + .dmg)
+        if: matrix.kind == 'macos'
+        run: |
+          cargo run -p xtask -- bundle-macos
+          cargo run -p xtask -- dmg-macos
+
+      - name: Build + bundle Linux (tar.gz)
+        if: matrix.kind == 'linux'
+        run: |
+          cargo build --release -p prowl --features gpui
+          cargo run -p xtask -- bundle-linux --bin target/release/prowl
+
+      - name: Checksums
+        working-directory: target/dist
+        run: |
+          shopt -s nullglob
+          files=( *.dmg *.tar.gz )
+          [ ${#files[@]} -gt 0 ] && shasum -a 256 "${files[@]}" > "SHA256SUMS-${{ matrix.target }}.txt" || true
+
+      - name: Upload to draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            target/dist/*.dmg
+            target/dist/*.tar.gz
+            target/dist/SHA256SUMS-*.txt

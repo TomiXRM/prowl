@@ -13,6 +13,8 @@
 
 use std::sync::Arc;
 
+use std::io::IsTerminal;
+
 use anyhow::{Context, Result};
 use prowl_app::Frontend;
 use prowl_core::discovery::mock::MockDiscovery;
@@ -29,8 +31,10 @@ use prowl_web::WebFrontend;
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let use_web = args.iter().any(|a| a == "--web");
-    let use_gpui = args.iter().any(|a| a == "--gpui");
     let use_mock = args.iter().any(|a| a == "--mock");
+    // .app/.desktop からの起動(端末なし)では GPUI を既定にする（gpui feature 有効時のみ）。
+    let use_gpui = args.iter().any(|a| a == "--gpui")
+        || (cfg!(feature = "gpui") && !use_web && !std::io::stdout().is_terminal());
     let port: u16 = args
         .iter()
         .position(|a| a == "--port")
