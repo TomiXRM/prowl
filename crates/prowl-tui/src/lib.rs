@@ -49,6 +49,9 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
     // NIC 選択ポップアップ（`i` で開く擬似プルダウン）。
     let mut iface_mode = false;
     let mut iface_cursor: usize = 0;
+    // コピーモード（`y` で開始 → i/m/v/h で項目を選んでクリップボードへ）。
+    let mut copy_mode = false;
+    let mut copy_status: Option<String> = None;
     let mut selected: usize = 0;
 
     loop {
@@ -58,6 +61,7 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
             selected = visible.len().saturating_sub(1);
         }
         let selected_ip = visible.get(selected).map(|h| h.ip);
+        let selected_host = visible.get(selected).copied();
 
         term.draw(|f| {
             draw(
@@ -68,6 +72,8 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
                 filter_mode,
                 iface_mode,
                 iface_cursor,
+                copy_mode,
+                copy_status.as_deref(),
             )
         })?;
 
@@ -80,6 +86,29 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
             maybe_ev = input.next() => {
                 let Some(Ok(CtEvent::Key(key))) = maybe_ev else { continue };
                 if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
+                // コピーモード: i/m/v/h で項目を選んでクリップボードへ（GPUI 相当）。
+                if copy_mode {
+                    let field = match key.code {
+                        KeyCode::Char('i') => selected_host.map(|h| h.ip.to_string()),
+                        KeyCode::Char('m') => selected_host.and_then(|h| h.mac.clone()),
+                        KeyCode::Char('v') => selected_host.and_then(|h| h.vendor.clone()),
+                        KeyCode::Char('h') => selected_host.and_then(|h| h.hostname.clone()),
+                        _ => {
+                            copy_mode = false; // Esc 等で取消
+                            continue;
+                        }
+                    };
+                    copy_mode = false;
+                    copy_status = Some(match field {
+                        Some(text) => match copy_to_clipboard(&text) {
+                            Ok(()) => format!("コピー: {text}"),
+                            Err(e) => format!("コピー失敗: {e}"),
+                        },
+                        None => "(値なし)".to_string(),
+                    });
                     continue;
                 }
 
@@ -140,6 +169,12 @@ async fn event_loop(term: &mut Term, engine: EngineHandle) -> anyhow::Result<()>
                         let _ = commands.send(Command::Rescan).await;
                     }
                     KeyCode::Char('/') => filter_mode = true,
+                    KeyCode::Char('y') => {
+                        // 選択ホストがあればコピーモードへ（i/m/v/h で項目選択）。
+                        if selected_host.is_some() {
+                            copy_mode = true;
+                        }
+                    }
                     KeyCode::Char('i') => {
                         // 候補が複数あるときだけ NIC ピッカーを開く。
                         if snapshot.interfaces.len() > 1 {
@@ -187,6 +222,8 @@ fn draw(
     filter_mode: bool,
     iface_mode: bool,
     iface_cursor: usize,
+    copy_mode: bool,
+    copy_status: Option<&str>,
 ) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -206,7 +243,7 @@ fn draw(
 
     draw_host_table(f, body[0], visible, selected);
     draw_detail(f, body[1], state, visible.get(selected).copied());
-    draw_footer(f, rows[2], state, filter_mode);
+    draw_footer(f, rows[2], state, filter_mode, copy_mode, copy_status);
 
     // NIC ピッカーは最後にオーバーレイ描画する（擬似プルダウン）。
     if iface_mode {
@@ -409,8 +446,24 @@ fn draw_detail(
     f.render_widget(detail, area);
 }
 
-fn draw_footer(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState, filter_mode: bool) {
-    let line = if filter_mode {
+fn draw_footer(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    state: &AppState,
+    filter_mode: bool,
+    copy_mode: bool,
+    copy_status: Option<&str>,
+) {
+    let line = if copy_mode {
+        Line::from(vec![
+            Span::styled("copy> ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "[i]IP [m]MAC [v]Vendor [h]Host",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("  (Esc で取消)", Style::default().fg(Color::DarkGray)),
+        ])
+    } else if filter_mode {
         Line::from(vec![
             Span::styled("filter> ", Style::default().fg(Color::Magenta)),
             Span::raw(state.filter.clone()),
@@ -422,12 +475,17 @@ fn draw_footer(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState, fil
         } else {
             Span::styled("‖監視停止", Style::default().fg(Color::DarkGray))
         };
+        // コピー結果があればステータスの代わりに優先表示する。
+        let status = match copy_status {
+            Some(s) => Span::styled(s.to_string(), Style::default().fg(Color::Cyan)),
+            None => Span::raw(state.status.clone()),
+        };
         Line::from(vec![
             mon,
             Span::raw("  "),
-            Span::raw(state.status.clone()),
+            status,
             Span::styled(
-                "   [↑↓]選択 [Enter]ポート [m]監視 [r]再 [/]絞込 [i]NIC [q]終了",
+                "   [↑↓]選択 [Enter]ポート [y]コピー [m]監視 [r]再 [/]絞込 [i]NIC [q]終了",
                 Style::default().fg(Color::DarkGray),
             ),
         ])
@@ -436,6 +494,47 @@ fn draw_footer(f: &mut Frame, area: ratatui::layout::Rect, state: &AppState, fil
         Paragraph::new(line).block(Block::default().borders(Borders::ALL)),
         area,
     );
+}
+
+/// 選択値をクリップボードへコピーする（依存ゼロ＝OS標準ツールにパイプ）。
+/// macOS: `pbcopy` / Linux: `wl-copy` → `xclip` → `xsel` の順に試す。
+fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    #[cfg(target_os = "macos")]
+    let candidates: &[(&str, &[&str])] = &[("pbcopy", &[])];
+    #[cfg(not(target_os = "macos"))]
+    let candidates: &[(&str, &[&str])] = &[
+        ("wl-copy", &[]),
+        ("xclip", &["-selection", "clipboard"]),
+        ("xsel", &["-ib"]),
+    ];
+
+    let mut last_err = String::from("クリップボードツールが見つかりません");
+    for (prog, args) in candidates {
+        match Command::new(prog)
+            .args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(mut child) => {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                    // stdin をここで閉じる（drop）とツールが処理を完了できる。
+                }
+                match child.wait() {
+                    Ok(s) if s.success() => return Ok(()),
+                    Ok(s) => last_err = format!("{prog} が異常終了 ({s})"),
+                    Err(e) => last_err = format!("{prog}: {e}"),
+                }
+            }
+            Err(_) => continue, // 次の候補へ
+        }
+    }
+    anyhow::bail!("{last_err}")
 }
 
 fn status_style(s: HostStatus) -> Style {
