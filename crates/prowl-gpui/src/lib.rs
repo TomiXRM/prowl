@@ -92,7 +92,7 @@ impl TableDelegate for HostTableDelegate {
         let fg = theme.foreground;
         let muted = theme.muted_foreground;
         match col_ix {
-            // IP（死活で色分け）— クリックでコピー
+            // IP（死活で色分け）— 右クリックでコピー
             0 => {
                 let (color, mark) = match h.status {
                     HostStatus::Up => (fg, " "),
@@ -107,7 +107,7 @@ impl TableDelegate for HostTableDelegate {
                     color,
                 )
             }
-            // MAC / Vendor — 値があればクリックでコピー
+            // MAC / Vendor — 値があれば右クリックでコピー
             1 => match &h.mac {
                 Some(mac) => copyable_cell("mac", row_ix, mac.clone(), mac.clone(), muted),
                 None => div().text_color(muted).child("-").into_any_element(),
@@ -116,7 +116,7 @@ impl TableDelegate for HostTableDelegate {
                 Some(v) => copyable_cell("vendor", row_ix, v.clone(), v.clone(), fg),
                 None => div().text_color(muted).child("-").into_any_element(),
             },
-            // Hostname — 値があればクリックでコピー
+            // Hostname — 値があれば右クリックでコピー
             3 => match &h.hostname {
                 Some(host) => copyable_cell("host", row_ix, host.clone(), host.clone(), fg),
                 None => div().text_color(muted).child("-").into_any_element(),
@@ -154,8 +154,8 @@ impl ProwlView {
             cx.notify();
         });
 
-        // 行の選択 or ダブルクリック → そのホストをポートスキャン。
-        // 各セルはクリックでコピーを消費し得るので、ダブルクリックでも確実に走らせる。
+        // 行の選択（左クリック）or ダブルクリック → そのホストをポートスキャン。
+        // セルのコピーは右クリックに割り当てたので、左クリックは行選択にそのまま通る。
         cx.subscribe(&table, |this, _table, event, cx| {
             let ix = match event {
                 TableEvent::SelectRow(ix) | TableEvent::DoubleClickedRow(ix) => *ix,
@@ -368,7 +368,8 @@ impl ProwlView {
     }
 }
 
-/// クリックでクリップボードへコピーし成功トーストを出すセル。
+/// 右クリックでクリップボードへコピーし成功トーストを出すセル。
+/// 左クリックは行選択（＋ポートスキャン）に通すので、選択しただけでコピーされない。
 fn copyable_cell(
     key: &'static str,
     row_ix: usize,
@@ -378,10 +379,9 @@ fn copyable_cell(
 ) -> AnyElement {
     div()
         .id((key, row_ix))
-        .cursor_pointer()
         .text_color(color)
         .child(display)
-        .on_click(move |_, window, cx| {
+        .on_mouse_down(MouseButton::Right, move |_, window, cx| {
             cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
             window.push_notification(Notification::success(format!("コピー: {copy}")), cx);
         })
