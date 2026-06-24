@@ -10,6 +10,9 @@
 
 #![allow(dead_code)]
 
+mod assets;
+use assets::Assets;
+
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -411,7 +414,6 @@ impl Render for ProwlView {
         let update_el: Option<AnyElement> = match self.update_ui.lock().ok().map(|g| g.clone()) {
             Some(UpdateUi::Available { plan, .. }) => Some(
                 Button::new("update")
-                    .small()
                     .label(format!("⬆ v{} に更新", plan.latest))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.start_install();
@@ -442,52 +444,49 @@ impl Render for ProwlView {
         let nic_selector: Option<AnyElement> = if self.state.interfaces.len() > 1 {
             Some(
                 Select::new(&self.nic_select)
-                    .small()
                     .title_prefix("NIC: ")
-                    .menu_width(px(200.))
+                    .menu_width(px(220.))
                     .into_any_element(),
             )
         } else {
             None
         };
 
-        // --- ヘッダ ---
-        let header = h_flex()
-            .gap_2()
-            .px_2()
-            .py_1()
-            .border_b_1()
-            .border_color(border)
-            .child(div().font_weight(FontWeight::BOLD).child("prowl"))
-            .child(div().text_color(muted).child(format!("subnet: {subnet}")))
-            .children(nic_selector)
-            .child(
-                div()
-                    .text_color(if monitoring { accent_green } else { muted })
-                    .child(if monitoring {
-                        "● 監視中"
-                    } else {
-                        "‖ 停止"
-                    }),
-            )
-            .child(
-                Button::new("rescan")
-                    .small()
-                    .label("再スキャン")
-                    .on_click(cx.listener(|this, _, _, _| this.send(Command::Rescan))),
-            )
-            .child(
-                Button::new("monitor")
-                    .small()
-                    .label("監視")
-                    .on_click(cx.listener(|this, _, _, cx| {
+        // --- ヘッダ（テーブル以外は一段大きめ＝text_sm）---
+        let header =
+            h_flex()
+                .gap_2()
+                .px_2()
+                .py_1()
+                .text_sm()
+                .border_b_1()
+                .border_color(border)
+                .child(div().font_weight(FontWeight::BOLD).child("prowl"))
+                .child(div().text_color(muted).child(format!("subnet: {subnet}")))
+                .children(nic_selector)
+                .child(
+                    div()
+                        .text_color(if monitoring { accent_green } else { muted })
+                        .child(if monitoring {
+                            "● 監視中"
+                        } else {
+                            "‖ 停止"
+                        }),
+                )
+                .child(
+                    Button::new("rescan")
+                        .label("再スキャン")
+                        .on_click(cx.listener(|this, _, _, _| this.send(Command::Rescan))),
+                )
+                .child(Button::new("monitor").label("監視").on_click(cx.listener(
+                    |this, _, _, cx| {
                         this.send(Command::ToggleMonitor);
                         cx.notify();
-                    })),
-            )
-            .child(div().flex_1())
-            .children(update_el)
-            .child(div().text_color(muted).child(status));
+                    },
+                )))
+                .child(div().flex_1())
+                .children(update_el)
+                .child(div().text_color(muted).child(status));
 
         // --- 左: テーブル ---
         let table = div()
@@ -496,12 +495,13 @@ impl Render for ProwlView {
             .h_full()
             .child(Table::new(&self.table).stripe(true).xsmall());
 
-        // --- 右: 詳細サイドペイン ---
+        // --- 右: 詳細サイドペイン（text_sm で一段大きく）---
         let detail = v_flex()
-            .w(px(260.))
+            .w(px(284.))
             .h_full()
             .p_2()
             .gap_1()
+            .text_sm()
             .bg(panel)
             .border_l_1()
             .border_color(border)
@@ -527,7 +527,7 @@ impl Render for ProwlView {
 
 /// ウィンドウを1枚開く（commands/state でエンジンに繋がる）。
 fn open_window(cx: &mut App, commands: mpsc::Sender<Command>, state: watch::Receiver<AppState>) {
-    let bounds = Bounds::centered(None, size(px(924.), px(420.)), cx);
+    let bounds = Bounds::centered(None, size(px(992.), px(444.)), cx);
     let opts = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
@@ -550,7 +550,8 @@ pub fn run(handle: EngineHandle) {
         commands, state, ..
     } = handle;
 
-    let app = Application::new();
+    // with_assets: gpui-component が使うアイコン(SVG)を供給する（無いと矢印/通知が空）。
+    let app = Application::new().with_assets(Assets);
 
     // X でウィンドウを閉じてもプロセスは生き続ける（macOS）。Dock アイコンの再クリックで
     // ウィンドウが無ければ開き直す。無いと「Dockに居るのに開かない」状態になる。
