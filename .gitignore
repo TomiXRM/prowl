@@ -3,3 +3,4 @@ target/
 /.claude/
 # 生成アイコン（assets/prowl.png から xtask icon が再生成）
 /assets/icon/
+/crates/prowl-gpui/Cargo.lock
