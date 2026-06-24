@@ -41,11 +41,46 @@ jobs:
             libx11-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
             libasound2-dev libvulkan-dev libzstd-dev
 
+      # 署名/公証はシークレットが揃っているときだけ有効化（無ければ ad-hoc にフォールバック）。
+      - name: Detect macOS signing
+        if: matrix.kind == 'macos'
+        id: macsign
+        run: echo "enabled=${{ secrets.MACOS_CERTIFICATE != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Import Developer ID certificate
+        if: matrix.kind == 'macos' && steps.macsign.outputs.enabled == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/prowl-signing.keychain-db"
+          KCPW="$(uuidgen)"
+          security create-keychain -p "$KCPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPW" "$KEYCHAIN"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERTIFICATE_PWD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
       - name: Bundle macOS (.app + .dmg)
         if: matrix.kind == 'macos'
+        env:
+          # 空ならxtaskが ad-hoc にフォールバックする。
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: |
           cargo run -p xtask -- bundle-macos
           cargo run -p xtask -- dmg-macos
+
+      - name: Notarize & staple (.dmg)
+        if: matrix.kind == 'macos' && steps.macsign.outputs.enabled == 'true'
+        env:
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: cargo run -p xtask -- notarize-macos
 
       - name: Build + bundle Linux (tar.gz)
         if: matrix.kind == 'linux'

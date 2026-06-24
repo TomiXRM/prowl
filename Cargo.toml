@@ -5,6 +5,7 @@ members = [
     "crates/prowl-core",
     "crates/prowl-tui",
     "crates/prowl-web",
+    "crates/prowl-update",
     "crates/prowl",
     "xtask",
 ]
@@ -25,6 +26,7 @@ prowl-app = { path = "crates/prowl-app" }
 prowl-core = { path = "crates/prowl-core" }
 prowl-tui = { path = "crates/prowl-tui" }
 prowl-web = { path = "crates/prowl-web" }
+prowl-update = { path = "crates/prowl-update" }
 # 外部
 anyhow = "1"
 async-trait = "0.1"

@@ -2,11 +2,17 @@
 //!
 //! stdlib のみ。`cargo run -p xtask -- <subcommand>` で実行。
 //!   icon              assets/prowl.png → assets/icon/{AppIcon.icns,icon_512.png}（macOS, sips/iconutil）
-//!   bundle-macos      release(--features gpui) → target/dist/prowl.app（ad-hoc 署名）
+//!   bundle-macos      release(--features gpui) → target/dist/prowl.app（署名）
 //!   dmg-macos         hdiutil で prowl.app + /Applications の DMG
+//!   notarize-macos    .dmg を Apple に公証(notarize)して staple（認証情報が無ければスキップ）
 //!   bundle-linux [--bin P]  tar.gz レイアウト（bin + .desktop + icon）
 //!
 //! GPUI フロントを含めるため release ビルドは常に `--features gpui`。
+//!
+//! macOS 署名はシークレット駆動の two-mode:
+//! - `MACOS_SIGN_IDENTITY` があれば Developer ID＋hardened runtime＋entitlements で署名
+//!   （`notarize-macos` で公証すると初回警告ゼロ）。
+//! - 無ければ ad-hoc 署名にフォールバック（初回 .dmg は右クリック→開くが必要）。
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -32,6 +38,7 @@ fn run() -> Result<(), String> {
         Some("icon") => icon(&root),
         Some("bundle-macos") => bundle_macos(&root),
         Some("dmg-macos") => dmg_macos(&root),
+        Some("notarize-macos") => notarize_macos(&root),
         Some("bundle-linux") => {
             let mut bin = None;
             let mut it = args.iter().skip(1);
@@ -44,7 +51,9 @@ fn run() -> Result<(), String> {
             bundle_linux(&root, bin)
         }
         Some("-h") | Some("--help") | None => {
-            println!("usage: cargo run -p xtask -- <icon|bundle-macos|dmg-macos|bundle-linux>");
+            println!(
+                "usage: cargo run -p xtask -- <icon|bundle-macos|dmg-macos|notarize-macos|bundle-linux>"
+            );
             Ok(())
         }
         Some(other) => Err(format!("unknown subcommand: {other}")),
@@ -236,9 +245,108 @@ fn bundle_macos(root: &Path) -> Result<(), String> {
     std::fs::copy(&icns, res.join("AppIcon.icns")).map_err(|e| e.to_string())?;
     std::fs::write(app.join("Contents/PkgInfo"), "APPL????").map_err(|e| e.to_string())?;
 
-    // ad-hoc 署名（Developer ID / notarization は将来）
-    sh(Command::new("codesign").args(["--force", "-s", "-", "--deep", app.to_str().unwrap()]))?;
+    codesign_app(root, &app)?;
     println!("bundle-macos: wrote {}", app.display());
+    Ok(())
+}
+
+/// 環境変数が在って非空なら返す。
+fn env_nonempty(k: &str) -> Option<String> {
+    std::env::var(k).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// `.app` に署名する。
+/// - `MACOS_SIGN_IDENTITY` があれば Developer ID＋hardened runtime＋entitlements＋timestamp
+///   で署名（公証可能＝初回警告ゼロにできる）。
+/// - 無ければ ad-hoc 署名にフォールバック（現状どおり動くが Gatekeeper 初回警告は残る）。
+fn codesign_app(root: &Path, app: &Path) -> Result<(), String> {
+    let app_s = app.to_str().ok_or("non-utf8 app path")?;
+    match env_nonempty("MACOS_SIGN_IDENTITY") {
+        Some(id) => {
+            println!("bundle-macos: codesign (Developer ID: {id})");
+            let ent = root.join("assets/macos/entitlements.plist");
+            let mut args: Vec<String> = vec![
+                "--force".into(),
+                "--timestamp".into(),
+                "--options".into(),
+                "runtime".into(),
+                "--sign".into(),
+                id,
+            ];
+            if ent.exists() {
+                args.push("--entitlements".into());
+                args.push(ent.to_string_lossy().into_owned());
+            }
+            // 単一バイナリのバンドル（ネストフレームワーク無し）なので --deep で十分。
+            args.push("--deep".into());
+            args.push(app_s.to_string());
+            sh(Command::new("codesign").args(&args))?;
+        }
+        None => {
+            println!(
+                "bundle-macos: codesign (ad-hoc; Developer ID 署名は MACOS_SIGN_IDENTITY で有効化)"
+            );
+            sh(Command::new("codesign").args(["--force", "-s", "-", "--deep", app_s]))?;
+        }
+    }
+    // ad-hoc / Developer ID どちらでも厳密検証する。
+    sh(Command::new("codesign").args(["--verify", "--strict", "--verbose=2", app_s]))?;
+    Ok(())
+}
+
+/// `.dmg` を Apple に公証(notarize)してチケットを staple する。
+///
+/// `MACOS_NOTARY_APPLE_ID` / `_PASSWORD`（App用パスワード）/ `_TEAM_ID` が揃っていなければ
+/// スキップして `Ok`（ad-hoc ビルドや fork でも CI を壊さない）。
+fn notarize_macos(root: &Path) -> Result<(), String> {
+    let v = version(root)?;
+    let dmg = dist(root).join(format!("prowl-{v}-{}.dmg", host_arch()));
+    if !dmg.exists() {
+        return Err(format!("{} not found — run dmg-macos first", dmg.display()));
+    }
+    let dmg_s = dmg.to_str().ok_or("non-utf8 dmg path")?;
+
+    let (apple_id, password, team_id) = match (
+        env_nonempty("MACOS_NOTARY_APPLE_ID"),
+        env_nonempty("MACOS_NOTARY_PASSWORD"),
+        env_nonempty("MACOS_NOTARY_TEAM_ID"),
+    ) {
+        (Some(a), Some(p), Some(t)) => (a, p, t),
+        _ => {
+            println!(
+                "notarize-macos: skip（公証情報が無い: MACOS_NOTARY_APPLE_ID / _PASSWORD / _TEAM_ID）"
+            );
+            return Ok(());
+        }
+    };
+
+    println!("notarize-macos: submit {dmg_s} …（Apple の処理に数分かかることがある）");
+    sh(Command::new("xcrun").args([
+        "notarytool",
+        "submit",
+        dmg_s,
+        "--apple-id",
+        &apple_id,
+        "--password",
+        &password,
+        "--team-id",
+        &team_id,
+        "--wait",
+    ]))?;
+
+    println!("notarize-macos: staple {dmg_s}");
+    sh(Command::new("xcrun").args(["stapler", "staple", dmg_s]))?;
+
+    // 直接配布する dist/prowl.app にも best-effort で staple（公証後なら成功）。
+    let app = dist(root).join("prowl.app");
+    if let Some(app_s) = app.to_str() {
+        if app.exists() {
+            let _ = Command::new("xcrun")
+                .args(["stapler", "staple", app_s])
+                .status();
+        }
+    }
+    println!("notarize-macos: done");
     Ok(())
 }
 

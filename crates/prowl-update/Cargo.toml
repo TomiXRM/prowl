@@ -1,0 +1,12 @@
+[package]
+name = "prowl-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "prowl: GitHub Releases 経由のセルフアップデート（domain純粋層 + io層）"
+
+[dependencies]
+# blocking HTTPS（rustls）。serde は使わず JSON を手スキャンする（軽量・依存最小）。
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+sha2 = "0.10"
+tempfile = "3"

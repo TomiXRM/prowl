@@ -10,6 +10,7 @@ prowl-app = { workspace = true }
 prowl-core = { workspace = true }
 prowl-tui = { workspace = true }
 prowl-web = { workspace = true }
+prowl-update = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 # GPUI フロントは重い git 依存＋Metal(要フルXcode)のため optional。

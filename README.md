@@ -59,6 +59,28 @@ cargo test --workspace  # Rust テスト
 
 対応環境: macOS (Apple Silicon / Intel) + Linux (x86_64 / arm64)、Rust 1.96+。
 
+### ダウンロード版（[Releases](https://github.com/TomiXRM/prowl/releases)）
+
+| OS | ファイル |
+|---|---|
+| macOS (Apple Silicon) | `prowl-<v>-arm64.dmg` |
+| Linux (x86_64) | `prowl-<v>-x86_64.tar.gz` |
+
+> 🍎 **macOS 初回起動**: 配布物が未署名/未公証のうちは、初回だけ **右クリック → 開く**
+> （または「システム設定 → プライバシーとセキュリティ」で許可）。整合性は `SHA256SUMS-*.txt` で検証可。
+
+## アップデート（自分で自分を差し替え）
+
+```sh
+prowl --check-update   # 最新リリースがあるか確認するだけ
+prowl --update         # 確認 → DL → SHA-256検証 → バイナリ/.app 差し替え → 再起動
+```
+
+GUI(GPUI) では起動時に背景で確認し、新版があればヘッダに **「⬆ vX.Y.Z に更新」** バナーが出ます。
+ダウンロードは HTTPS＋SHA-256 で検証し、差し替えはアトミック（失敗時は現状を温存）。
+セルフアップデート経由なら quarantine が付かないため、**ad-hoc 署名でも無警告**で更新できます。
+（署名・公証の仕組みは [`docs/RELEASING.md`](./docs/RELEASING.md) を参照）
+
 ### Web UI ＆ AI が回せる e2e テスト
 
 `--web` で同じエンジンを **ブラウザ(DOM)** に映す（TUI と同一の `Command`/`AppState` 契約）。
@@ -84,6 +106,7 @@ cd e2e && npm ci && npx playwright install chromium && npx playwright test
 | `prowl-core` | スキャンエンジン＋各トレイト実装（UI非依存・単体テスト可能） |
 | `prowl-tui` | `ratatui` フロントエンド |
 | `prowl-web` | Web(DOM) フロントエンド（axum + WebSocket、Playwright で検証可） |
+| `prowl-update` | セルフアップデート（domain純粋層＋io層・SHA-256検証・アトミック差し替え） |
 | `prowl` | 配線してフロントを起動する薄いバイナリ |
 
 拡張ポイントの例:
@@ -96,7 +119,9 @@ cd e2e && npm ci && npx playwright install chromium && npx playwright test
 ## ロードマップ
 
 - [x] Web(DOM) フロント＋ Playwright e2e
-- [ ] GPUI ネイティブフロント（longbridge gpui-component）
+- [x] GPUI ネイティブフロント（longbridge gpui-component）
+- [x] セルフアップデート（GitHub Releases からバイナリ/.app 差し替え・SHA-256検証）
+- [x] macOS 署名/公証パイプライン（シークレット駆動・ad-hoc フォールバック）
 - [ ] OS 推定（TTL/開放ポート指紋）
 - [ ] JSON / CSV エクスポート
 - [ ] mDNS サービスブラウズ（名前と機種情報の強化）

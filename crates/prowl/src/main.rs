@@ -13,9 +13,9 @@
 
 use std::sync::Arc;
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use prowl_app::Frontend;
 use prowl_core::discovery::mock::MockDiscovery;
 use prowl_core::discovery::{ping_neigh::PingNeighborDiscovery, Discovery};
@@ -30,6 +30,16 @@ use prowl_web::WebFrontend;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+
+    // --- セルフアップデート（フロント起動より前に処理して終了）---
+    // `ureq` は同期なので tokio ランタイム不要。
+    if args.iter().any(|a| a == "--check-update") {
+        return run_update_cli(true);
+    }
+    if args.iter().any(|a| a == "--update") {
+        return run_update_cli(false);
+    }
+
     let use_web = args.iter().any(|a| a == "--web");
     let use_mock = args.iter().any(|a| a == "--mock");
     // .app/.desktop からの起動(端末なし)では GPUI を既定にする（gpui feature 有効時のみ）。
@@ -104,4 +114,59 @@ fn main() -> Result<()> {
         Box::new(TuiFrontend)
     };
     rt.block_on(frontend.run(handle))
+}
+
+/// `--check-update` / `--update` の CLI フロー。
+///
+/// GitHub の最新リリースを確認し、`check_only` なら案内だけ、そうでなければ確認の上で
+/// DL → SHA-256 検証 → バイナリ/`.app` をアトミック差し替え → 再起動する。
+fn run_update_cli(check_only: bool) -> Result<()> {
+    let current = prowl_update::current_version();
+    let found = prowl_update::check_for_update(None).map_err(|e| anyhow!(e))?;
+
+    let (plan, release) = match found {
+        Some(pr) => pr,
+        None => {
+            println!("✓ prowl {current} は最新です。");
+            return Ok(());
+        }
+    };
+
+    let size_mb = plan.asset.size as f64 / 1_048_576.0;
+    println!(
+        "⬆ 新バージョンがあります: {} → {}",
+        plan.current, plan.latest
+    );
+    println!("   asset : {} ({size_mb:.1} MB)", plan.asset.name);
+    if !plan.notes.trim().is_empty() {
+        println!("   notes :");
+        for line in plan.notes.lines().take(8) {
+            println!("     {line}");
+        }
+    }
+
+    if check_only {
+        println!("\n`prowl --update` で更新できます。");
+        return Ok(());
+    }
+
+    // 対話端末でなければ自動承認しない（CI/パイプ誤実行の暴発防止）。
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "端末ではないため自動更新を中止しました（対話端末で `prowl --update` を実行してください）"
+        ));
+    }
+    print!("\n更新しますか？ [y/N] ");
+    std::io::stdout().flush().ok();
+    let mut ans = String::new();
+    std::io::stdin().read_line(&mut ans)?;
+    if !matches!(ans.trim(), "y" | "Y" | "yes") {
+        println!("中止しました。現在のバージョンは変更していません。");
+        return Ok(());
+    }
+
+    let relaunch = prowl_update::install(&plan, &release, &|m| println!("  {m}"))
+        .map_err(|e| anyhow!("更新に失敗しました（現在のバージョンは温存）: {e}"))?;
+    println!("✓ 更新完了。再起動します…");
+    relaunch.spawn_and_exit();
 }

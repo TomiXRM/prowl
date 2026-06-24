@@ -11,6 +11,7 @@
 #![allow(dead_code)]
 
 use std::net::Ipv4Addr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::*;
@@ -18,7 +19,27 @@ use gpui_component::notification::Notification;
 use gpui_component::table::{Column, Table, TableDelegate, TableEvent, TableState};
 use gpui_component::{button::*, *};
 use prowl_app::{AppState, Command, EngineHandle, HostRow, HostStatus, PortScanState};
+use prowl_update::{ReleaseInfo, UpdatePlan};
 use tokio::sync::{mpsc, watch};
+
+/// ヘッダの「更新」バナー状態。バックグラウンドスレッド（ネットワーク/インストール）と
+/// ビュー（描画）の間で `Arc<Mutex<…>>` 共有し、既存の 150ms タイマで描画へ反映する。
+#[derive(Clone)]
+enum UpdateUi {
+    /// チェック中、または情報なし（バナー非表示）。
+    Idle,
+    /// 最新（バナー非表示）。
+    UpToDate,
+    /// 新バージョンあり → 更新ボタンを出す。
+    Available {
+        plan: UpdatePlan,
+        release: ReleaseInfo,
+    },
+    /// インストール中（進捗テキスト）。
+    Installing(String),
+    /// 失敗（現バージョンは温存）。
+    Failed(String),
+}
 
 /// ホスト一覧テーブルのデータ供給（gpui-component の Table デリゲート）。
 struct HostTableDelegate {
@@ -107,6 +128,8 @@ struct ProwlView {
     commands: mpsc::Sender<Command>,
     selected: Option<Ipv4Addr>,
     table: Entity<TableState<HostTableDelegate>>,
+    /// セルフアップデートの状態（バックグラウンドスレッドと共有）。
+    update_ui: Arc<Mutex<UpdateUi>>,
 }
 
 impl ProwlView {
@@ -162,16 +185,65 @@ impl ProwlView {
         })
         .detach();
 
+        // 起動時にバックグラウンドで最新リリースを確認（best-effort・失敗は静か）。
+        // ネットワークはブロッキングなので OS スレッドで回し、結果は共有状態へ。
+        let update_ui = Arc::new(Mutex::new(UpdateUi::Idle));
+        {
+            let ui = update_ui.clone();
+            std::thread::spawn(move || {
+                let next = match prowl_update::check_for_update(None) {
+                    Ok(Some((plan, release))) => UpdateUi::Available { plan, release },
+                    _ => UpdateUi::UpToDate, // 失敗も静かに「最新」扱い
+                };
+                if let Ok(mut g) = ui.lock() {
+                    *g = next;
+                }
+            });
+        }
+
         Self {
             state,
             commands,
             selected: None,
             table,
+            update_ui,
         }
     }
 
     fn send(&self, cmd: Command) {
         let _ = self.commands.try_send(cmd);
+    }
+
+    /// 「更新」ボタン押下 → 別スレッドで DL→検証→差し替えを実行し、成功で再起動する。
+    /// 進捗は共有状態 [`UpdateUi::Installing`] に流れ、150ms タイマで描画へ反映される。
+    fn start_install(&self) {
+        let mut guard = match self.update_ui.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let (plan, release) = match &*guard {
+            UpdateUi::Available { plan, release } => (plan.clone(), release.clone()),
+            _ => return, // 二重押下や状態変化はノーオペ
+        };
+        *guard = UpdateUi::Installing("準備中…".into());
+        drop(guard);
+
+        let ui = self.update_ui.clone();
+        std::thread::spawn(move || {
+            let log = |m: &str| {
+                if let Ok(mut g) = ui.lock() {
+                    *g = UpdateUi::Installing(m.to_string());
+                }
+            };
+            match prowl_update::install(&plan, &release, &log) {
+                Ok(relaunch) => relaunch.spawn_and_exit(), // 新プロセスを起動して終了（戻らない）
+                Err(e) => {
+                    if let Ok(mut g) = ui.lock() {
+                        *g = UpdateUi::Failed(e);
+                    }
+                }
+            }
+        });
     }
 
     fn select(&mut self, ip: Ipv4Addr, cx: &mut Context<Self>) {
@@ -306,8 +378,36 @@ impl Render for ProwlView {
         let muted = theme.muted_foreground;
         let border = theme.border;
         let accent_green = theme.green;
+        let accent_red = theme.red;
         let bg = theme.background;
         let panel = theme.sidebar;
+
+        // --- セルフアップデートのバナー（状態に応じて出し分け）---
+        let update_el: Option<AnyElement> = match self.update_ui.lock().ok().map(|g| g.clone()) {
+            Some(UpdateUi::Available { plan, .. }) => Some(
+                Button::new("update")
+                    .small()
+                    .label(format!("⬆ v{} に更新", plan.latest))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.start_install();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            ),
+            Some(UpdateUi::Installing(msg)) => Some(
+                div()
+                    .text_color(accent_green)
+                    .child(format!("更新: {msg}"))
+                    .into_any_element(),
+            ),
+            Some(UpdateUi::Failed(_)) => Some(
+                div()
+                    .text_color(accent_red)
+                    .child("更新に失敗（再試行可）")
+                    .into_any_element(),
+            ),
+            _ => None,
+        };
 
         let subnet = self.state.subnet.clone().unwrap_or_else(|| "—".into());
         let monitoring = self.state.monitoring;
@@ -347,6 +447,7 @@ impl Render for ProwlView {
                     })),
             )
             .child(div().flex_1())
+            .children(update_el)
             .child(div().text_color(muted).child(status));
 
         // --- 左: テーブル ---
