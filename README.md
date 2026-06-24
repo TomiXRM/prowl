@@ -50,7 +50,12 @@ cd prowl
 cargo run                 # TUI 起動（root 不要）
 cargo run -- --web        # Web UI 起動 → http://127.0.0.1:7878
 cargo run -- --web --mock # 実NW非依存の決定論モード（デモ/テスト用）
+cargo run -- --list-ifaces  # 使える NIC を列挙（複数 up 時の確認に）
+cargo run -- --iface en0    # 使う NIC を明示指定（無指定は自動検出）
 ```
+
+> 💡 Wi-Fi・有線・VPN(utun)・Docker/VM ブリッジが同時に up していると、自動検出が
+> 意図しない NIC を掴むことがあります。`--list-ifaces` で確認し `--iface <NAME>` で固定できます。
 
 ```sh
 cargo build --release   # 単一バイナリ → target/release/prowl

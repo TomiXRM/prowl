@@ -7,6 +7,9 @@
 //! - `--web [--port N]` : Web(DOM)フロント（無印は TUI）
 //! - `--gpui`           : GPUI ネイティブフロント（要 `--features gpui` ＝ Xcode/Metal）
 //! - `--mock`           : 実ネットワークに触れない決定論モード（e2e/デモ用）
+//! - `--list-ifaces`    : スキャンに使える候補NICを列挙して終了
+//! - `--iface NAME`     : 使うNICを明示指定（無指定は自動検出）
+//! - `--check-update` / `--update` : セルフアップデート
 //!
 //! GPUI はメインスレッドを占有するため、`#[tokio::main]` ではなく手動ランタイムにし、
 //! エンジンは背後のワーカーで動かす。
@@ -40,6 +43,26 @@ fn main() -> Result<()> {
         return run_update_cli(false);
     }
 
+    // --- NIC 一覧（列挙して終了）---
+    if args.iter().any(|a| a == "--list-ifaces") {
+        let ifaces = net::list();
+        if ifaces.is_empty() {
+            println!("(スキャンに使える有効なIPv4インターフェースが見つかりません)");
+        } else {
+            println!("利用可能なインターフェース（--iface <NAME> で指定）:");
+            for l in &ifaces {
+                println!("  {}", l.describe());
+            }
+        }
+        return Ok(());
+    }
+    // 使用するNIC名（明示指定が無ければ自動検出）。
+    let iface = args
+        .iter()
+        .position(|a| a == "--iface")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str());
+
     let use_web = args.iter().any(|a| a == "--web");
     let use_mock = args.iter().any(|a| a == "--mock");
     // .app/.desktop からの起動(端末なし)では GPUI を既定にする（gpui feature 有効時のみ）。
@@ -63,7 +86,12 @@ fn main() -> Result<()> {
     let local = if use_mock {
         None
     } else {
-        Some(net::detect().context("ネットワークインターフェースの自動検出に失敗")?)
+        let l = match iface {
+            Some(name) => net::detect_named(name)
+                .with_context(|| format!("インターフェース '{name}' の使用に失敗"))?,
+            None => net::detect().context("ネットワークインターフェースの自動検出に失敗")?,
+        };
+        Some(l)
     };
     let subnet = match &local {
         Some(l) => l.subnet(),
