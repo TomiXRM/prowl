@@ -385,29 +385,48 @@ impl Render for ProwlView {
     }
 }
 
+/// ウィンドウを1枚開く（commands/state でエンジンに繋がる）。
+fn open_window(cx: &mut App, commands: mpsc::Sender<Command>, state: watch::Receiver<AppState>) {
+    let bounds = Bounds::centered(None, size(px(924.), px(420.)), cx);
+    let opts = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            title: Some("prowl".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    cx.open_window(opts, move |window, cx| {
+        let view = cx.new(|cx| ProwlView::new(commands, state, window, cx));
+        cx.new(|cx| Root::new(view, window, cx))
+    })
+    .expect("failed to open window");
+}
+
 /// GPUI アプリを起動する（メインスレッドを占有してブロックする）。
 /// エンジンは別の tokio ランタイムで動かし、`handle` 経由で状態をやり取りする。
 pub fn run(handle: EngineHandle) {
-    Application::new().run(move |cx: &mut App| {
+    let EngineHandle {
+        commands, state, ..
+    } = handle;
+
+    let app = Application::new();
+
+    // X でウィンドウを閉じてもプロセスは生き続ける（macOS）。Dock アイコンの再クリックで
+    // ウィンドウが無ければ開き直す。無いと「Dockに居るのに開かない」状態になる。
+    {
+        let commands = commands.clone();
+        let state = state.clone();
+        app.on_reopen(move |cx| {
+            if cx.windows().is_empty() {
+                open_window(cx, commands.clone(), state.clone());
+            }
+            cx.activate(true);
+        });
+    }
+
+    app.run(move |cx: &mut App| {
         gpui_component::init(cx);
-
-        let EngineHandle {
-            commands, state, ..
-        } = handle;
-
-        let bounds = Bounds::centered(None, size(px(924.), px(420.)), cx);
-        let opts = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                title: Some("prowl".into()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        cx.open_window(opts, move |window, cx| {
-            let view = cx.new(|cx| ProwlView::new(commands, state, window, cx));
-            cx.new(|cx| Root::new(view, window, cx))
-        })
-        .expect("failed to open window");
+        open_window(cx, commands, state);
     });
 }
