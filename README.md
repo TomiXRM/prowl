@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/prowl.png" alt="prowl" width="120" />
+<img src="assets/prowl.svg" alt="prowl" width="120" />
 
 # prowl
 
